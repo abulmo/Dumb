@@ -255,7 +255,7 @@ final class Search {
 				e = board.inCheck;
 				if (moves.isFirst(m))  s = -αβ(-β, -α, d + e - 1);
 				else {
-					s = -αβ(-α - 1, -α, d - 1);
+					s = -αβ(-α - 1, -α, d + e - 1);
 					if (α < s && s < β) s = -αβ(-β, -α, d + e - 1);
 				}
 			restore(m);
@@ -287,7 +287,11 @@ final class Search {
 			Move m = rootMoves[i];
 			update(m);
 				e = board.inCheck;
-				s = -αβ(-β, -α, d + e - 1);
+				if (i == 0)  s = -αβ(-β, -α, d + e - 1);
+				else {
+					s = -αβ(-α - 1, -α, d + e - 1);
+					if (α < s && s < β) s = -αβ(-β, -α, d + e - 1);
+				}
 			restore(m);
 			if (stop) break;
 			if (s > bs && (bs = s) > α) {
