@@ -1,13 +1,14 @@
 /*
  * File board.d
  * Chess board representation, move generation, etc.
- * © 2016-2017 Richard Delorme
+ * © 2017-2018 Richard Delorme
  */
 
 module board;
 import move, util;
 import std.ascii, std.conv, std.format, std.stdio, std.string, std.uni;
-import std.algorithm, std.getopt, std.math, std.random;
+import std.algorithm, std.math, std.random;
+import core.bitop;
 
 /* limits */
 struct Limits {
@@ -38,24 +39,24 @@ Piece toPiece(const char c) {
 char toChar(const Piece p) { return ".PNBRQK?"[p]; }
 
 /* Colored Piece */
-enum CPiece : ubyte {none, wpawn, bpawn, wknight, bknight, wbishop, bbishop, wrook, brook, wqueen, bqueen, wking, bking, size}
+enum CPiece : ubyte {none, _, wpawn, bpawn, wknight, bknight, wbishop, bbishop, wrook, brook, wqueen, bqueen, wking, bking, size}
 
-CPiece toCPiece(const Piece p, const Color c) {	return cast (CPiece) (2 * p + c - 1); }
+CPiece toCPiece(const Piece p, const Color c) {	return cast (CPiece) (2 * p + c); }
 
 CPiece toCPiece(const char c) {
-	size_t i = indexOf(".PpNnBbRrQqKk", c);
+	size_t i = indexOf("._PpNnBbRrQqKk", c);
 	if (i == -1) i = 0;
 	return cast (CPiece) i;
 }
 
 Color toColor(const CPiece p) {
-	static immutable Color[CPiece.size] c= [Color.none,
+	static immutable Color[CPiece.size] c= [Color.none, Color.none,
 		Color.white, Color.black, Color.white, Color.black, Color.white, Color.black,
 		Color.white, Color.black, Color.white, Color.black, Color.white, Color.black];
 	return c[p];
 }
 
-Piece toPiece(const CPiece p) { return cast (Piece) ((p + 1) / 2); }
+Piece toPiece(const CPiece p) { return cast (Piece) (p / 2); }
 
 /* Square */
 enum Square : ubyte {
@@ -124,7 +125,7 @@ struct Key {
 
 	shared static this() {
 		Mt19937 r;
-		r.seed(19937);
+		r.seed(19_937);
 		foreach (p; CPiece.wpawn .. CPiece.size)
 		foreach (x; Square.a1 .. Square.size) square[p][x] = uniform(ulong.min, ulong.max, r);
 		foreach (c; Castling.K .. Castling.size) castling[c] = uniform(ulong.min, ulong.max, r);
@@ -376,15 +377,12 @@ final class Board {
 		color[enemy] ^= M;
 	}
 
-	bool isSquareAttacked(const Square x, const Color player) const {
-		const ulong occupancy = ~piece[Piece.none];
-		const ulong P = color[player];
-
-		return attack!(Piece.bishop)(x, P & (piece[Piece.bishop] | piece[Piece.queen]), occupancy)
-			|| attack!(Piece.rook)(x, P & (piece[Piece.rook] | piece[Piece.queen]), occupancy)
-			|| attack!(Piece.knight)(x, P & piece[Piece.knight])
-			|| attack!(Piece.pawn)(x, P & piece[Piece.pawn], occupancy, opponent(player))
-			|| attack!(Piece.king)(x, P & piece[Piece.king]);
+	bool isSquareAttacked(const Square x, const Color p, const ulong occupancy) const {
+		return attack!(Piece.bishop)(x, color[p] & (piece[Piece.bishop] | piece[Piece.queen]), occupancy)
+			|| attack!(Piece.rook)(x, color[p] & (piece[Piece.rook] | piece[Piece.queen]), occupancy)
+			|| attack!(Piece.knight)(x, color[p] & piece[Piece.knight])
+			|| attack!(Piece.pawn)(x, color[p] & piece[Piece.pawn], occupancy, opponent(p))
+			|| attack!(Piece.king)(x, color[p] & piece[Piece.king]);
 	}
 
 	static void generateMoves(ref Moves moves, ulong attack, const Square from) {
@@ -607,7 +605,7 @@ final class Board {
 		}
 	}
 
-	void generateMoves(bool doQuiet = true)(ref Moves moves) {
+	void generateMoves(bool doQuiet = true)(ref Moves moves) const {
 		const Color enemy = opponent(player);
 		const ulong occupancy = ~piece[Piece.none];
 		const ulong pinfree = color[player] & ~stack[ply].pins;
@@ -638,12 +636,12 @@ final class Board {
 			static if (doQuiet) {
 				if (canCastleKingside()
 					&& (occupancy & mask[k].between[k + 3]) == 0
-					&& !isSquareAttacked(cast (Square) (k + 1), enemy)
-					&& !isSquareAttacked(cast (Square) (k + 2), enemy)) moves.push(k, cast (Square) (k + 2));
+					&& !isSquareAttacked(cast (Square) (k + 1), enemy, occupancy)
+					&& !isSquareAttacked(cast (Square) (k + 2), enemy, occupancy)) moves.push(k, cast (Square) (k + 2));
 				if (canCastleQueenside()
 					&& (occupancy & mask[k].between[k - 4]) == 0
-					&& !isSquareAttacked(cast (Square) (k - 1), enemy)
-					&& !isSquareAttacked(cast (Square) (k - 2), enemy)) moves.push(k, cast (Square) (k - 2));
+					&& !isSquareAttacked(cast (Square) (k - 1), enemy, occupancy)
+					&& !isSquareAttacked(cast (Square) (k - 2), enemy, occupancy)) moves.push(k, cast (Square) (k - 2));
 			}
 
 			attacker = piece[Piece.pawn] & stack[ply].pins;
@@ -670,7 +668,6 @@ final class Board {
 				else if (d == 7) generateMoves(moves, antidiagonalAttack(occupancy, from) & target, from);
 			}
 
-
 			attacker = rq & stack[ply].pins;
 			while (attacker) {
 				from = popSquare(attacker);
@@ -680,7 +677,7 @@ final class Board {
 			}
 		}
 
-		if (stack[ply].enpassant != Square.none && (!checkers || x == stack[ply].enpassant)) {
+		if (stack[ply].enpassant != Square.none && (!checkers || x == stack[ply].enpassant.shift(-push))) {
 			to = stack[ply].enpassant;
 			x = to.shift(-push);
 			from = cast (Square) (x - 1);
@@ -715,13 +712,12 @@ final class Board {
 		generatePieceMoves!(Piece.rook)(moves, rq & pinfree, target); 
 
 		target = color[enemy]; static if (doQuiet) target |= piece[Piece.none];
-		piece[Piece.none] ^= mask[k].bit;
 		attacked = attack!(Piece.king)(k, target);
+		o = occupancy ^ mask[k].bit;
 		while (attacked) {
 			to = popSquare(attacked);
-			if (!isSquareAttacked(to, enemy)) moves.push(k, to);
+			if (!isSquareAttacked(to, enemy, o)) moves.push(k, to);
 		}
-		piece[Piece.none] ^= mask[k].bit;
 	}
 }
 
