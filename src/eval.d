@@ -1,7 +1,7 @@
 /*
  * File eval.d
  * Evaluation function
- * © 2017 Richard Delorme
+ * © 2017-2018 Richard Delorme
  */
 
 module eval;
@@ -9,7 +9,7 @@ module eval;
 import board, move, util;
 import std.algorithm;
 
-enum Score {mate = 30000, low = -29000, high = 29000, big = 3000}
+enum Score {mate = 30_000, low = -29_000, high = 29_000, big = 3_000}
 
 /* Value: a pair of opening / engame score */
 struct Value {
@@ -27,13 +27,13 @@ struct Value {
 	}
 
 	void opOpAssign(string op)(const Value s) {
-		mixin("opening "~op~"= s.opening;");
-		mixin("endgame "~op~"= s.endgame;");
+		mixin("opening " ~ op ~ "= s.opening;");
+		mixin("endgame " ~ op ~ "= s.endgame;");
 	}
 
 	void opOpAssign(string op)(const int v) {
-		mixin("opening "~op~"= v;");
-		mixin("endgame "~op~"= v;");
+		mixin("opening " ~ op ~ "= v;");
+		mixin("endgame " ~ op ~ "= v;");
 	}
 }
 
@@ -60,8 +60,6 @@ final class Eval {
 		return d == 0 ? 2.0 : 1.0 / d;
 	}
 
-	static int scale(const double w, const double f = 1600) { return cast (int) (f * w + (w > 0 ? 0.5 : w < 0 ? -0.5 : 0.0)); }
-
 	static void adjustPawn(string phase) (ref Value [Square.size] p) {
 		foreach(x; Square.a1 .. Square.a2) mixin("p[x]."~phase) = 0;
 		foreach(x; Square.a8 .. Square.size) mixin("p[x]."~phase) = 0;
@@ -83,7 +81,7 @@ final class Eval {
 			double m = 0.0; foreach (x; Square.a1 .. Square.size) m += p[x]; m /= Square.size;
 			foreach (x; Square.a1 .. Square.size) p[x] -= m;
 		}
-		foreach(x; Square.a1 .. Square.size) mixin("positional[x]."~phase) += scale(p[x]);
+		foreach(x; Square.a1 .. Square.size) mixin("positional[x]."~phase) += cast (int) p[x];
 	}
 
 	void remove(const Piece p, const Color c, const Square x) {
@@ -104,19 +102,10 @@ final class Eval {
 		s.value[c] += coeff.positional[p][forward(to, c)];
 	}
 
-	int toCentipawns(const Value value) const {
-		const Stack *s = &stack[ply];
-		return (value.opening * s.stage + value.endgame * (64 - s.stage)) / 1024;
-	}
-
 	this() {
-		immutable double [] w = [
-			+1.00, +3.82, +4.04, +5.48, +12.38,
-			+0.02, +3.47, +0.96, +0.15, +1.08, +0.05, +0.47, -0.42, -0.41, -0.46, -0.09, -0.31, +0.25,
-			+0.17,
-			+1.46, +3.56, +3.81, +6.85, +11.63,
-			+1.28, +0.47, +0.19, +0.46, +0.11,
-			-0.07
+		immutable int [] w = [
+			+100, +382, +404, +548, +1238, +2, +347, +96, +15, +108, +5, +47, -42, -41, -46, -9, -31, +25, +17,
+			+146, +356, +381, +685, +1163, +128, +47, +19, +46, +11, -7
 		];
 		
 		size_t i;
@@ -130,7 +119,7 @@ final class Eval {
 		static immutable Square [] kingCastle = [Square.b1, Square.g1];
 		static immutable Square [] kingCenter = [Square.d4, Square.e4, Square.d5, Square.e5];
 
-		foreach(p; Piece.pawn .. Piece.king) coeff.material[p].opening = scale(w[i++]);
+		foreach(p; Piece.pawn .. Piece.king) coeff.material[p].opening = w[i++];
 		coeff.material[Piece.king].opening = 0;
 
 		buildPositional!"opening"(coeff.positional[Piece.pawn],   pawnCenter,    w[i++], true);
@@ -141,20 +130,20 @@ final class Eval {
 		buildPositional!"opening"(coeff.positional[Piece.queen],  queenCenter,   w[i++], false);
 		buildPositional!"opening"(coeff.positional[Piece.king],   kingCastle,    w[i++], false);
 		adjustPawn!"opening"(coeff.positional[Piece.pawn]);
-		coeff.positional[Piece.pawn][Square.d2].opening   += scale(w[i]) ;
-		coeff.positional[Piece.pawn][Square.e2].opening   += scale(w[i++]);
-		coeff.positional[Piece.knight][Square.b1].opening += scale(w[i]);
-		coeff.positional[Piece.knight][Square.g1].opening += scale(w[i++]);
-		coeff.positional[Piece.bishop][Square.c1].opening += scale(w[i]);
-		coeff.positional[Piece.bishop][Square.f1].opening += scale(w[i++]);
-		coeff.positional[Piece.rook][Square.a1].opening   += scale(w[i]);
-		coeff.positional[Piece.rook][Square.h1].opening   += scale(w[i++]);
-		coeff.positional[Piece.queen][Square.d1].opening  += scale(w[i++]);
-		coeff.positional[Piece.king][Square.e1].opening   += scale(w[i++]);
+		coeff.positional[Piece.pawn][Square.d2].opening   += w[i] ;
+		coeff.positional[Piece.pawn][Square.e2].opening   += w[i++];
+		coeff.positional[Piece.knight][Square.b1].opening += w[i];
+		coeff.positional[Piece.knight][Square.g1].opening += w[i++];
+		coeff.positional[Piece.bishop][Square.c1].opening += w[i];
+		coeff.positional[Piece.bishop][Square.f1].opening += w[i++];
+		coeff.positional[Piece.rook][Square.a1].opening   += w[i];
+		coeff.positional[Piece.rook][Square.h1].opening   += w[i++];
+		coeff.positional[Piece.queen][Square.d1].opening  += w[i++];
+		coeff.positional[Piece.king][Square.e1].opening   += w[i++];
 
-		coeff.tempo.opening = scale(w[i++]);
+		coeff.tempo.opening = w[i++];
 
-		foreach(p; Piece.pawn .. Piece.king) coeff.material[p].endgame = scale(w[i++]);
+		foreach(p; Piece.pawn .. Piece.king) coeff.material[p].endgame = w[i++];
 		coeff.material[Piece.king].endgame = 0;
 
 		buildPositional!"endgame"(coeff.positional[Piece.pawn],   pawnAdvance,  w[i++], true);
@@ -164,7 +153,7 @@ final class Eval {
 		buildPositional!"endgame"(coeff.positional[Piece.king],   kingCenter,   w[i++], false);
 		adjustPawn!"endgame"(coeff.positional[Piece.pawn]);
 	
-		coeff.tempo.endgame = scale(w[i++]);
+		coeff.tempo.endgame = w[i++];
 	}
 
 	void set(const Board board) {
@@ -216,12 +205,10 @@ final class Eval {
 	void restore() { --ply;	}
 
 	int opCall(const Board b) const {
-		const Color player = b.player;
-		const Color enemy = opponent(player);
 		const Stack *s = &stack[ply];
-		const Value value = s.value[player] - s.value[enemy] + coeff.tempo;
+		const Value value = s.value[b.player] - s.value[opponent(b.player)] + coeff.tempo;
 
-		return toCentipawns(value);
+		return (value.opening * s.stage + value.endgame * (64 - s.stage)) / 64;
 	}
 }
 
