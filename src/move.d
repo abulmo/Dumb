@@ -1,7 +1,7 @@
 /*
  * File move.d
  * move, list of moves & sequence of moves.
- * © 2017 Richard Delorme
+ * © 2017-2018 Richard Delorme
  */
 
 module move;
@@ -75,7 +75,7 @@ struct Moves {
 		1, 2, 3, 4, 4, 3, 2, 1, 
 		0, 1, 2, 3, 3, 2, 1, 0
 	];
-	enum ttBonus = 10000;
+	enum ttBonus = 10_000;
 
 	void clear() { index = n = 0; }
 
