@@ -1,7 +1,7 @@
 /*
  * File search.d
  * Best move search.
- * © 2017 Richard Delorme
+ * © 2017-2018 Richard Delorme
  */
 
 module search;
@@ -10,7 +10,7 @@ import board, eval, move, util;
 import std.stdio, std.string, std.format, std.algorithm, std.math;
 
 /* Hash table score bound */
-enum Bound {upper, lower, exact}
+enum Bound {none, upper, lower, exact}
 
 /* Entry Table Entry */
 struct Entry {
@@ -50,9 +50,7 @@ final class TranspositionTable {
 		entry.length = mask + bucketSize;
 	}
 
-	void clear() {
-		foreach (ref h; entry) h = Entry.init;
-	}
+	void clear() { foreach (ref h; entry) h = Entry.init; }
 
 	bool probe(const Key k, ref Entry found) {
 		const size_t i = cast (size_t) (k.code & mask);
@@ -174,6 +172,7 @@ final class Search {
 		const αOld = α;
 		if (!board.inCheck) {
 			bs = eval(board);
+			if ((h.bound == Bound.lower && s > bs) || (h.bound == Bound.upper && s < bs)) bs = s;
 			if (bs > α) {
 				tt.store(board.key, 0, ply, tt.bound(bs, β), bs, h.move);
 				if ((α = bs) >= β) return bs;
@@ -212,10 +211,12 @@ final class Search {
 		if (d <= 0) return qs(α, β);
 		if (abort()) return α;
 		if (board.isDraw) return 0;
+
 		bs = ply - Score.mate;
 		if (bs > α && (α = bs) >= β) return bs;
 		s = Score.mate - ply - 1;
 		if (s < β && (β = s) <= α) return s;		
+
 		if (tt.probe(board.key, h) && !isPv) {
 			s = h.score(ply);
 			if (h.depth >= d || s <= ply - Score.mate || s >= Score.mate - ply - 1) {
@@ -307,18 +308,17 @@ final class Search {
 	}
 
 	void aspiration(const int α, const int β, const int d) {
-		int λ, υ, up = +10, down = -10;
+		int λ, υ, δ = +10;
 
 		if (d <= 4) {
 			αβRoot(α, β, d);
-		} else do {
-				λ = max(α, score + down);
-				υ = min(β, score + up);
-				αβRoot(λ, υ, d);
-				if (score <= λ && down < -1) { down *= 2 ; up = 1; }
-				else if (score >= υ && up > 1) { down = -1; up *= 2; }
-				else { down = α - score; up = β - score; }
-		} while (!stop && ((score <= λ && λ > α) || (score >= υ && υ < β)));
+		} else for (λ = score - δ, υ = score + δ; !stop; δ *= 2) {
+			λ = max(α, λ); υ = min(β, υ);
+			αβRoot(λ, υ, d);
+			if      (score <= λ && λ > α) { υ = (λ + υ) / 2; λ = score - δ; }
+			else if (score >= υ && υ < β) {	λ = (λ + υ) / 2; υ = score + δ; }
+			else break;
+		}
 		writeUCI(d);
 	}
 
