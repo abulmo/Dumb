@@ -63,7 +63,7 @@ class Uci {
 	}
 
 	void uci() const {
-		send("id name dumb 1.1");
+		send("id name dumb 1.2");
 		send("id author Richard Delorme");
 		send("option name Ponder type check default false");
 		send("option name Hash type spin default 64 min 1 max 65536");
@@ -155,7 +155,7 @@ class Uci {
 
 		ms.generate(board);
 
-		if (!div && depth == 1) return moves.length;
+		if (!div && depth == 1) return ms.length;
 
 		while ((m = ms.next.move) != 0) {
 			board.update(m);
@@ -250,8 +250,11 @@ class Uci {
 			else if (findSkip(line, "go")) go(line);
 			else if ((findSkip(line, "stop") || findSkip(line, "ponderhit")) && isPondering) bestmove();
 			else if (findSkip(line, "quit")) break;
-			else if (findSkip(line, "perft")) perft(to!int(line), true);
-			else if (findSkip(line, "bench")) perft(to!int(line), true);
+			else if (findSkip(line, "debug")) {}
+			else if (findSkip(line, "register")) {}
+			else if (findSkip(line, "perft ")) perft(to!int(line), true);
+			else if (findSkip(line, "bench ")) bench(to!int(line));
+			else send("error unknown command: '", line, "'");
 		}
 	}
 }
