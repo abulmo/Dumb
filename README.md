@@ -11,4 +11,8 @@ Dumb is based on the following algorithms:
  - simple (insertion) move sorting: hash move + mvvlva ordered capture/promotions + quiet moves (no killermove, no history)
  - null move pruning (no lmr, lmp, razoring, frontier node pruning, ...)
  - checking move extension
+
+Strength:
+ CCRL rating 40/4: 2241
+ CGET rating 40/4: 2053
  
