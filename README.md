@@ -13,6 +13,7 @@ Dumb is based on the following algorithms:
  - checking move extension
 
 Strength:
- CCRL rating 40/4: 2241
- CGET rating 40/4: 2053
+
+ - CCRL rating 40/4: 2241
+ - CGET rating 40/4: 2053
  
