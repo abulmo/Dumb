@@ -1,7 +1,7 @@
 /*
  * File dumb.d
  * Universal Chess Interface.
- * © 2017-2018 Richard Delorme
+ * © 2017-2019 Richard Delorme
  */
 
 module dumb;
@@ -63,7 +63,7 @@ class Uci {
 	}
 
 	void uci() const {
-		send("id name dumb 1.2");
+		send("id name dumb 1.3");
 		send("id author Richard Delorme");
 		send("option name Ponder type check default false");
 		send("option name Hash type spin default 64 min 1 max 65536");
@@ -208,6 +208,7 @@ class Uci {
 
 	void go(string line) {
 		Option option;
+		bool isInfinite = false;
 		string [] words = line.split();
 
 		moves.clear();
@@ -216,7 +217,7 @@ class Uci {
 		foreach(c ; Color.white .. Color.size) time[c].clear();
 		isPondering = false;
 		foreach(i, ref w ; words) {
-			if (w == "searchmoves") foreach(m ; words) moves.push(fromPan(m));
+			if (w == "searchmoves") foreach(m ; words[i..$]) moves.push(fromPan(m));
 			else if (w == "ponder") isPondering = true;
 			else if (w == "wtime" && i + 1 < words.length) time[Color.white].remaining = 0.001 * to!double(words[i + 1]);
 			else if (w == "btime" && i + 1 < words.length) time[Color.black].remaining = 0.001 * to!double(words[i + 1]);
@@ -227,14 +228,13 @@ class Uci {
 			else if (w == "nodes" && i + 1 < words.length) option.nodes.max = to!ulong(words[i + 1]);
 			else if (w == "mate" && i + 1 < words.length) option.depth.max = to!int(words[i + 1]);
 			else if (w == "movetime" && i + 1 < words.length) time[board.player].increment = 0.001 * to!double(words[i + 1]);
-			else if (w == "infinite") option.depth.max =  Limits.ply.max;
-
+			else if (w == "infinite") { isInfinite = true; option.depth.max =  Limits.ply.max; }
 		}
 		option.time.max = setTime();
 		option.isPondering = isPondering;
 
 		search.go(option, moves);
-		if (!isPondering) bestmove();
+		if (!isInfinite && !isPondering) bestmove();
 	}
 
 	void loop() {
@@ -248,7 +248,7 @@ class Uci {
 			else if (findSkip(line, "setoption")) setoption(line);
 			else if (findSkip(line, "position")) position(line);
 			else if (findSkip(line, "go")) go(line);
-			else if ((findSkip(line, "stop") || findSkip(line, "ponderhit")) && isPondering) bestmove();
+			else if ((findSkip(line, "stop") || (findSkip(line, "ponderhit")) && isPondering)) bestmove();
 			else if (findSkip(line, "quit")) break;
 			else if (findSkip(line, "debug")) {}
 			else if (findSkip(line, "register")) {}
