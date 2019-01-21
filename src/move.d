@@ -1,7 +1,7 @@
 /*
  * File move.d
  * move, list of moves & sequence of moves.
- * © 2017-2018 Richard Delorme
+ * © 2017-2019 Richard Delorme
  */
 
 module move;
@@ -42,15 +42,13 @@ struct MoveItem {
 void insertionSort(MoveItem [] items) {
 	const size_t n = items.length;
 
-	if (n > 1) {
-		foreach (i; 1 .. n) {
-			size_t j;
-			const tmp = items[i];
-		    for (j = i ; j > 0 && tmp.value > items[j - 1].value; j--) {
-				items[j] = items[j - 1];
-			}
-			items[j] = tmp;
+	foreach (i; 1 .. n) {
+		size_t j;
+		const tmp = items[i];
+	    for (j = i ; j > 0 && tmp.value > items[j - 1].value; j--) {
+			items[j] = items[j - 1];
 		}
+		items[j] = tmp;
 	}
 }
 
@@ -98,7 +96,7 @@ struct Moves {
 		item[n] = MoveItem.init;
 	}
 	
-	ref MoveItem next() { return item[index++]; }
+	ref MoveItem next() return { return item[index++]; }
 
 	void setBest(const Move m, const size_t i = 0) {
 		foreach (j; 0 .. n) if (m == item[j].move) {
@@ -121,7 +119,7 @@ struct Moves {
 		}
 	}
 
-	ref const(Move) opIndex(const size_t i) const { return item[i].move; }
+	Move opIndex(const size_t i) const { return item[i].move; }
 	
 	bool isFirst(const Move m) const { return m == item[0].move; }
 }
