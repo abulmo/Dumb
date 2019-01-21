@@ -7,9 +7,10 @@ SRC = dumb.d util.d board.d eval.d move.d search.d
 DC = ldc2
 
 #lcd2
-FFLAGS = -O3 -release -singleobj -w -dw -mcpu=sandybridge -mattr=+sse4.2,popcnt,avx  -flto=full
-DFLAGS = -O0 -g -gc
-CFLAGS = -O1 -singleobj -w -dw -mcpu=sandybridge -mattr=+sse4.2,popcnt,avx -cov -flto=full
+FFLAGS = -O3 -release -singleobj -w -dw -flto=full -dip25
+DFLAGS = -O0 -g -gc -dip25
+PFLAGS = -O1 -w -dw -flto=full -dip25
+CFLAGS = $(PFLAGS) -cov
 PGO_GEN = -fprofile-instr-generate
 PGO_USE = -fprofile-instr-use=dumb.profdata
 PGO_MERGE = ldc-profdata merge -output=dumb.profdata dumb-*.profraw
