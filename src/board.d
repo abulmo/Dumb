@@ -1,13 +1,13 @@
 /*
  * File board.d
  * Chess board representation, move generation, etc.
- * © 2017-2018 Richard Delorme
+ * © 2017-2019 Richard Delorme
  */
 
 module board;
 import move, util;
 import std.ascii, std.conv, std.format, std.stdio, std.string, std.uni;
-import std.algorithm, std.math, std.random;
+import std.algorithm, std.math, std.random, std.range;
 import core.bitop;
 
 /* limits */
@@ -21,20 +21,12 @@ enum Color : ubyte {white, black, size, none}
 
 Color opponent(const Color c) { return cast (Color) !c; }
 
-Color toColor(const char c) {
-	size_t i = indexOf("wb", c);
-	if (i == -1) i = Color.size;
-	return cast (Color) i;
-}
+Color toColor(const char c) {return cast (Color) indexOf("wb", c); }
 
 /* Piece */
 enum Piece : ubyte {none, pawn, knight, bishop, rook, queen, king, size}
 
-Piece toPiece(const char c) {
-	size_t i = indexOf(".pnbrqk", c, CaseSensitive.no);
-	if (i == -1) i = 0;
-	return cast (Piece) i;
-}
+Piece toPiece(const char c) { return cast (Piece) indexOf(".pnbrqk", c, CaseSensitive.no); }
 
 char toChar(const Piece p) { return ".PNBRQK?"[p]; }
 
@@ -43,11 +35,7 @@ enum CPiece : ubyte {none, _, wpawn, bpawn, wknight, bknight, wbishop, bbishop, 
 
 CPiece toCPiece(const Piece p, const Color c) {	return cast (CPiece) (2 * p + c); }
 
-CPiece toCPiece(const char c) {
-	size_t i = indexOf("._PpNnBbRrQqKk", c);
-	if (i == -1) i = 0;
-	return cast (CPiece) i;
-}
+CPiece toCPiece(const char c) { return cast (CPiece) indexOf("._PpNnBbRrQqKk", c); }
 
 Color toColor(const CPiece p) {
 	static immutable Color[CPiece.size] c= [Color.none, Color.none,
@@ -60,8 +48,7 @@ Piece toPiece(const CPiece p) { return cast (Piece) (p / 2); }
 
 /* Square */
 enum Square : ubyte {
-	none = 65,
-	a1 = 0, b1, c1, d1, e1, f1, g1, h1,
+	a1, b1, c1, d1, e1, f1, g1, h1,
 	a2, b2, c2, d2, e2, f2, g2, h2,
 	a3, b3, c3, d3, e3, f3, g3, h3,
 	a4, b4, c4, d4, e4, f4, g4, h4,
@@ -69,12 +56,32 @@ enum Square : ubyte {
 	a6, b6, c6, d6, e6, f6, g6, h6,
 	a7, b7, c7, d7, e7, f7, g7, h7,
 	a8, b8, c8, d8, e8, f8, g8, h8,
-	size,
+	size, none,
+}
+
+auto allSquares() {
+	with (Square) {
+		static immutable Square[] all = [
+			a1, b1, c1, d1, e1, f1, g1, h1,
+			a2, b2, c2, d2, e2, f2, g2, h2,
+			a3, b3, c3, d3, e3, f3, g3, h3,
+			a4, b4, c4, d4, e4, f4, g4, h4,
+			a5, b5, c5, d5, e5, f5, g5, h5,
+			a6, b6, c6, d6, e6, f6, g6, h6,
+			a7, b7, c7, d7, e7, f7, g7, h7,
+			a8, b8, c8, d8, e8, f8, g8, h8
+		];
+		return all;
+	}
 }
 
 Square shift(const Square x, const int δ) { return cast (Square) (x + δ); }
 
+Square shift(const Square x) { return cast (Square) (x ^ 8); }
+
 Square forward(const Square x, const Color c) { return cast (Square) (x ^ (56 * c)); }
+
+Square mirror(const Square x) { return cast (Square) (x ^ 56); }
 
 int rank(const Square x) { return x >> 3; }
 
@@ -127,7 +134,7 @@ struct Key {
 		Mt19937 r;
 		r.seed(19_937);
 		foreach (p; CPiece.wpawn .. CPiece.size)
-		foreach (x; Square.a1 .. Square.size) square[p][x] = uniform(ulong.min, ulong.max, r);
+		foreach (x; allSquares) square[p][x] = uniform(ulong.min, ulong.max, r);
 		foreach (c; Castling.K .. Castling.size) castling[c] = uniform(ulong.min, ulong.max, r);
 		foreach (x; Square.a4 .. Square.a6) enpassant[x] = uniform(ulong.min, ulong.max, r);
 		foreach (c; Color.white .. Color.size) color[c] = uniform(ulong.min, ulong.max, r);
@@ -137,7 +144,7 @@ struct Key {
 	void set(const Board board) {
 		const Board.Stack *s = &board.stack[board.ply];
 		code = color[board.player];
-		foreach (Square x; Square.a1 .. Square.size) code ^= square[board[x]][x];
+		foreach (Square x; allSquares) code ^= square[board[x]][x];
 		code ^= enpassant[s.enpassant];
 		code ^= castling[s.castling];
 	}
@@ -156,8 +163,8 @@ struct Key {
 			code ^= square[board[move.to]][move.to];
 			if (toPiece(p) == Piece.pawn) {
 				if (move.promotion) code ^= square[p][move.to] ^ square[toCPiece(move.promotion, player)][move.to];
-				else if (s.enpassant == move.to) code ^= square[toCPiece(Piece.pawn, enemy)][toSquare(file(move.to), rank(move.from))];
-				else if (abs(move.to - move.from) == 16 && (board.mask[move.to].enpassant & (board.color[enemy] & board.piece[Piece.pawn]))) x = cast (Square) ((move.from + move.to) / 2);
+				else if (s.enpassant == move.to) code ^= square[toCPiece(Piece.pawn, enemy)][move.to.shift];
+				else if (abs(move.to - move.from) == 16 && (board.mask[move.to].enpassant & (board.color[enemy] & board.piece[Piece.pawn]))) x = move.to.shift;
 			} else if (toPiece(p) == Piece.king) {
 				CPiece r = toCPiece(Piece.rook, board.player);
 				if (move.to == move.from + 2) code ^= square[r][move.from + 3] ^ square[r][move.from + 1];
@@ -216,7 +223,7 @@ final class Board {
 		static immutable ubyte [6] castling = [13, 12, 14, 7, 3, 11];
 		static immutable Square [6] castlingX = [Square.a1, Square.e1, Square.h1, Square.a8, Square.e8, Square.h8];
 
-		foreach (x; Square.a1 .. Square.size) {
+		foreach (x; allSquares) {
 
 			for (i = -1; i <= 1; ++i)
 			for (j = -1; j <= 1; ++j) {
@@ -395,7 +402,7 @@ final class Board {
 	static void generatePromotions(bool doQuiet = true)(ref Moves moves, ulong attack, const int dir) {
 		while (attack) {
 			Square to = popSquare(attack);
-			Square from = cast (Square) (to - dir);
+			Square from = to.shift(-dir);
 			moves.pushPromotions!doQuiet(from, to);
 		}
 	}
@@ -403,7 +410,7 @@ final class Board {
 	static void generatePawns(ref Moves moves, ulong attack, const int dir) {
 		while (attack) {
 			Square to = popSquare(attack);
-			Square from = cast (Square) (to - dir);
+			Square from = to.shift(-dir);
 			moves.push(from, to);
 		}
 	}
@@ -431,7 +438,7 @@ final class Board {
 	void clear() {
 		foreach (p; Piece.none .. Piece.size) piece[p] = 0;
 		foreach (c; Color.white .. Color.size) color[c] = 0;
-		foreach (x; Square.a1 .. Square.size) cpiece[x] = CPiece.none;
+		foreach (x; allSquares) cpiece[x] = CPiece.none;
 		stack[0] = Stack.init;
 		xKing[0] = xKing[1] = Square.none;
 		player = Color.white;
@@ -554,11 +561,11 @@ final class Board {
 					piece[move.promotion] ^= to;
 					cpiece[move.to] = toCPiece(move.promotion, player);
 				} else if (u.enpassant == move.to) {
-					const x = toSquare(file(move.to), rank(move.from));
+					const x = move.to.shift;
 					capture(Piece.pawn, x, enemy);
 					cpiece[x] = CPiece.none;
 				} else if (abs(move.to - move.from) == 16 && (mask[move.to].enpassant & (color[enemy] & piece[Piece.pawn]))) {
-					n.enpassant = cast (Square) ((move.from + move.to) / 2);
+					n.enpassant = move.to.shift;
 				}
 			} else if (p == Piece.king) {
 				if (move.to == move.from + 2) deplace(move.from + 3, move.from + 1, Piece.rook);
@@ -593,7 +600,7 @@ final class Board {
 					piece[move.promotion] ^= to;
 					cpiece[move.from] = toCPiece(Piece.pawn, player);
 				} else if (u.enpassant == move.to) {
-					const x = toSquare(file(move.to), rank(move.from));
+					const Square x = move.to.shift;
 					capture(Piece.pawn, x, enemy);
 					cpiece[x] = toCPiece(Piece.pawn, enemy);
 				}
@@ -677,9 +684,9 @@ final class Board {
 			}
 		}
 
-		if (stack[ply].enpassant != Square.none && (!checkers || x == stack[ply].enpassant.shift(-push))) {
+		if (stack[ply].enpassant != Square.none && (!checkers || x == stack[ply].enpassant.shift)) {
 			to = stack[ply].enpassant;
-			x = to.shift(-push);
+			x = to.shift;
 			from = cast (Square) (x - 1);
 			if (file(to) > 0 && cpiece[from] == toCPiece(Piece.pawn, player)) {
 				o = occupancy ^ (mask[from].bit | mask[x].bit | mask[to].bit);
