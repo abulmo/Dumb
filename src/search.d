@@ -1,7 +1,7 @@
 /*
  * File search.d
  * Best move search.
- * © 2017-2018 Richard Delorme
+ * © 2017-2019 Richard Delorme
  */
 
 module search;
@@ -152,7 +152,6 @@ final class Search {
 		int s, bs; 
 		Moves moves = void;
 		Move m;
-		Entry h;
 
 		if (abort()) return α;
 		if (board.isDraw) return 0;
@@ -162,39 +161,23 @@ final class Search {
 		s = Score.mate - ply - 1;
 		if (s < β && (β = s) <= α) return s;			
 
-		if (tt.probe(board.key, h)) {
-			s = h.score(ply);
-			if (h.bound == Bound.exact) return s;
-			else if (h.bound == Bound.lower && (α = s) >= β) return s;
-			else if (h.bound == Bound.upper && (β = s) <= α) return s;
-		}
-
 		const αOld = α;
 		if (!board.inCheck) {
 			bs = eval(board);
-			if ((h.bound == Bound.lower && s > bs) || (h.bound == Bound.upper && s < bs)) bs = s;
-			if (bs > α) {
-				tt.store(board.key, 0, ply, tt.bound(bs, β), bs, h.move);
-				if ((α = bs) >= β) return bs;
-			}
+			if ((bs > α) && (α = bs) >= β) return bs;
 		}
 
 		if (ply == Limits.ply.max) return eval(board);
 
-		moves.generate!false(board, h.move);
+		moves.generate!false(board);
 
 		while ((m = moves.next.move) != 0) {
 			update(m);
 				s = -qs(-β, -α);
 			restore(m);
 			if (stop) break;
-			if (s > bs && (bs = s) > α) {
-				tt.store(board.key, board.inCheck, ply, tt.bound(bs, β), bs, m);
-				if ((α = bs) >= β) break;
-			}
+			if (s > bs && (bs = s) > α && (α = bs) >= β) break;
 		}
-
-		if (!stop && bs <= αOld) tt.store(board.key, board.inCheck, ply, Bound.upper, bs, h.move);
 
 		return bs;
 	}
@@ -333,9 +316,7 @@ final class Search {
 	Move hint() const @property { return pv[0].n > 1 ? pv[0].move[1] : 0; }
 
 	void set() {
-		Entry h;
-		tt.probe(board.key, h);
-		rootMoves.generate(board, h.move);
+		rootMoves.generate(board);
 		eval.set(board);
 	}
 
