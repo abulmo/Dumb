@@ -2,7 +2,7 @@
  * File util.d
  * Fast implementation on X86_64, portable algorithm for other platform
  * of some bit functions.
- * © 2017-2018 Richard Delorme
+ * © 2017-2019 Richard Delorme
  */
 
 module util;
