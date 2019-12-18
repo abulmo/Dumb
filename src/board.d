@@ -38,9 +38,7 @@ CPiece toCPiece(const Piece p, const Color c) {	return cast (CPiece) (2 * p + c)
 CPiece toCPiece(const char c) { return cast (CPiece) indexOf("._PpNnBbRrQqKk", c); }
 
 Color toColor(const CPiece p) {
-	static immutable Color[CPiece.size] c= [Color.none, Color.none,
-		Color.white, Color.black, Color.white, Color.black, Color.white, Color.black,
-		Color.white, Color.black, Color.white, Color.black, Color.white, Color.black];
+	static immutable Color[CPiece.size] c= iota(CPiece.none, CPiece.size).map!(x => x < CPiece.wpawn ? Color.none : cast (Color) (x & 1)).array;
 	return c[p];
 }
 
@@ -59,21 +57,7 @@ enum Square : ubyte {
 	size, none,
 }
 
-auto allSquares() {
-	with (Square) {
-		static immutable Square[] all = [
-			a1, b1, c1, d1, e1, f1, g1, h1,
-			a2, b2, c2, d2, e2, f2, g2, h2,
-			a3, b3, c3, d3, e3, f3, g3, h3,
-			a4, b4, c4, d4, e4, f4, g4, h4,
-			a5, b5, c5, d5, e5, f5, g5, h5,
-			a6, b6, c6, d6, e6, f6, g6, h6,
-			a7, b7, c7, d7, e7, f7, g7, h7,
-			a8, b8, c8, d8, e8, f8, g8, h8
-		];
-		return all;
-	}
-}
+auto allSquares() { return iota(Square.a1, Square.size).array; }
 
 Square shift(const Square x, const int δ) { return cast (Square) (x + δ); }
 
@@ -134,7 +118,7 @@ struct Key {
 		Mt19937 r;
 		r.seed(19_937);
 		foreach (p; CPiece.wpawn .. CPiece.size)
-		foreach (x; allSquares) square[p][x] = uniform(ulong.min, ulong.max, r);
+		foreach (x; Square.a1 .. Square.size) square[p][x] = uniform(ulong.min, ulong.max, r);
 		foreach (c; Castling.K .. Castling.size) castling[c] = uniform(ulong.min, ulong.max, r);
 		foreach (x; Square.a4 .. Square.a6) enpassant[x] = uniform(ulong.min, ulong.max, r);
 		foreach (c; Color.white .. Color.size) color[c] = uniform(ulong.min, ulong.max, r);
@@ -144,7 +128,7 @@ struct Key {
 	void set(const Board board) {
 		const Board.Stack *s = &board.stack[board.ply];
 		code = color[board.player];
-		foreach (Square x; allSquares) code ^= square[board[x]][x];
+		foreach (Square x; Square.a1 .. Square.size) code ^= square[board[x]][x];
 		code ^= enpassant[s.enpassant];
 		code ^= castling[s.castling];
 	}
@@ -218,25 +202,35 @@ final class Board {
 	int ply, plyOffset;
 
 	shared static this() {
-		int b, r, f, i, j, c, y, z;
+		int b, i, j, c, y, z;
 		byte [Square.size][Square.size] d;
 		static immutable ubyte [6] castling = [13, 12, 14, 7, 3, 11];
 		static immutable Square [6] castlingX = [Square.a1, Square.e1, Square.h1, Square.a8, Square.e8, Square.h8];
+		static immutable int [2][2] pawnDir   = [[-1, 1], [1, 1]];
+		static immutable int [2][8] knightDir = [[-2,-1], [-2,1], [-1,-2], [-1,2], [1,-2], [1,2], [2,-1], [2,1]];
+		static immutable int [2][8] kingDir   = [[-1,-1], [-1,0], [-1,1], [0,-1], [0,1], [1,-1], [1,0], [1,1]];
+
+		Square square (int f, int r) { return (0 <= r && r <= 7 && 0 <= f && f <= 7) ? toSquare(f, r) : Square.none; }
+
+		ulong bit(int f, int r) { return (0 <= r && r <= 7 && 0 <= f && f <= 7) ? 1UL << toSquare(f, r) : 0; }
 
 		foreach (x; allSquares) {
 
-			for (i = -1; i <= 1; ++i)
-			for (j = -1; j <= 1; ++j) {
-				if (i == 0 && j == 0) continue;
-				for (r = (x >> 3) + i, f = (x & 7) + j; 0 <= r && r < 8 && 0 <= f && f < 8; r += i, f += j) {
-			 		y = 8 * r + f;
-					d[x][y] = cast (byte) (8 * i + j);
-					mask[x].direction[y] = abs(d[x][y]);
-					for (z = x + d[x][y]; z != y; z += d[x][y]) mask[x].between[y] |= 1UL << z;
-			 	}
-			}
+			const int f = x & 07;
+			const int r = x >> 3;
 
 			mask[x].bit = 1UL << x;
+
+			foreach (dir; kingDir) {
+				foreach (k; 1 .. 8) {
+					y = square(f + k * dir[0], r + k * dir[1]);
+					if (y != Square.none) {
+						d[x][y] = cast (byte) (dir[0] + 8 * dir[1]);
+						mask[x].direction[y] = abs(d[x][y]);
+						for (z = x + d[x][y]; z != y; z += d[x][y]) mask[x].between[y] |= 1UL << z;
+					}
+			 	}
+			}
 
 			for (y = x - 9; y >= 0 && d[x][y] == -9; y -= 9) mask[x].diagonal |= 1UL << y;
 			for (y = x + 9; y < Square.size && d[x][y] == 9; y += 9) mask[x].diagonal |= 1UL << y;
@@ -247,42 +241,21 @@ final class Board {
 			for (y = x - 8; y >= 0; y -= 8) mask[x].file |= 1UL << y;
 			for (y = x + 8; y < Square.size; y += 8) mask[x].file |= 1UL << y;
 
-			f = x & 07;
-			r = x >> 3;
-			for (i = -1, c = 1; i <= 1; i += 2, c = 0) {
-				for (j = -1; j <= 1; j += 2) {
-					if (0 <= r + i && r + i < 8 && 0 <= f + j && f + j < 8) {
-						 y = (r + i) * 8 + (f + j);
-						 mask[x].pawnAttack[c] |= 1UL << y;
-					}
-				}
-				if (0 <= r + i && r + i < 8) {
-					y = (r + i) * 8 + f;
-					mask[x].push[c] = 1UL << y;
-				}
+			foreach (dir; pawnDir) {
+				mask[x].pawnAttack[Color.white] |= bit(f + dir[0], r + dir[1]);
+				mask[x].pawnAttack[Color.black] |= bit(f - dir[0], r - dir[1]);
 			}
+			mask[x].push[Color.white] |= bit(f - 1, r);
+			mask[x].push[Color.black] |= bit(f + 1, r);
+
 			if (r == 3 || r == 4) {
 				if (f > 0) mask[x].enpassant |=  1UL << x - 1;
 				if (f < 7) mask[x].enpassant |=  1UL << x + 1;
 			}
 
-			for (i = -2; i <= 2; i = (i == -1 ? 1 : i + 1))
-			for (j = -2; j <= 2; ++j) {
-				if (i == j || i == -j || j == 0) continue;
-				if (0 <= r + i && r + i < 8 && 0 <= f + j && f + j < 8) {
-			 		y = 8 * (r + i) + (f + j);
-			 		mask[x].knight |= 1UL << y;
-				}
-			}
+			foreach (dir; knightDir) mask[x].knight |= bit(f + dir[0], r + dir[1]);
+			foreach (dir; kingDir) 	 mask[x].king   |= bit(f + dir[0], r + dir[1]);
 
-			for (i = -1; i <= 1; ++i)
-			for (j = -1; j <= 1; ++j) {
-				if (i == 0 && j == 0) continue;
-				if (0 <= r + i && r + i < 8 && 0 <= f + j && f + j < 8) {
-			 		y = 8 * (r + i) + (f + j);
-			 		mask[x].king |= 1UL << y;
-				}
-			}
 			mask[x].castling = 15;
 		}
 
