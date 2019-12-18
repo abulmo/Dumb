@@ -45,8 +45,7 @@ final class TranspositionTable {
 	}
 
 	void resize(size_t size) {
-		const size_t l = 1 << firstBit(size / Entry.sizeof);
-		mask = l - 1;
+		mask = (1 << firstBit(size / Entry.sizeof)) - 1;
 		entry.length = mask + bucketSize;
 	}
 
@@ -93,6 +92,7 @@ final class Search {
 	TranspositionTable tt;
 	Moves rootMoves;
 	Line [Limits.ply.max + 1] pv;
+	Move [2][Limits.ply.max + 2] killer;
 	ulong nNodes;
 	int ply, score;
 	Chrono timer;
@@ -184,8 +184,9 @@ final class Search {
 
 	int αβ(int α, int β, const int d) {
 		const bool isPv = (α + 1 < β);
-		int e, r, s, bs;
+		int e, r, s, bs, v;
 		Moves moves = void;
+		MoveItem i = void;
 		Move m;
 		Entry h;
 
@@ -208,17 +209,24 @@ final class Search {
 				else if (h.bound == Bound.upper && s <= α) return s;
 			}
 		}
-		if (ply == Limits.ply.max) return eval(board);
+		v = eval(board);
+		if (ply == Limits.ply.max) return v;
 
-		if (!isPv && !board.inCheck && eval(board) > β && α < Score.big && β > -Score.big && (board.color[board.player] & ~(board.piece[Piece.pawn] | board.piece[Piece.king]))) {
-			r = 3;
-			update(0);
-				s = -αβ(-β, -β + 1, d - r);
-			restore(0);
-			if (!stop && s >= β) {
-				if (s >= Score.high) s = β;
-				tt.store(board.key, d, ply, Bound.lower, s, h.move);
-				return s;
+		if (!isPv && !board.inCheck && abs(v) < Score.big) {
+			const δ = 200 * d - 100;
+			if (v >= β + δ) return β;
+			if (v <=  α - δ && d <= 2) return qs(α, β);
+
+			if (v >= β && (board.color[board.player] & ~(board.piece[Piece.pawn] | board.piece[Piece.king]))) {
+				r = 3;
+				update(0);
+					s = -αβ(-β, -β + 1, d - r);
+				restore(0);
+				if (!stop && s >= β) {
+					if (s >= Score.high) s = β;
+					tt.store(board.key, d, ply, Bound.lower, s, h.move);
+					return s;
+				}
 			}
 		}
 
@@ -230,11 +238,11 @@ final class Search {
 			}
 		}
 
-		moves.generate(board, h.move);
+		moves.generate(board, h.move, killer[ply]);
 
 		const αOld = α;
 
-		while ((m = moves.next.move) != 0) {
+		while ((m = (i = moves.next).move) != 0) {
 			update(m);
 				e = board.inCheck;
 				if (moves.isFirst(m))  s = -αβ(-β, -α, d + e - 1);
@@ -246,6 +254,7 @@ final class Search {
 			if (stop) break;
 			if (s > bs && (bs = s) > α) {
 				tt.store(board.key, d, ply, tt.bound(bs, β), bs, m);
+				if (!i.isTactical && m != killer[ply][0]) { killer[ply][1] = killer[ply][0]; killer[ply][0] = m; }
 				if (isPv) pv[ply].set(m, pv[ply + 1]);
 				if ((α = bs) >= β) return bs;
 			}
@@ -287,7 +296,7 @@ final class Search {
 		}
 
 		if (!stop && bs <= αOld) tt.store(board.key, d, ply, Bound.upper, bs, rootMoves[0]);
-		score = bs;
+		if (!stop || bs > -Score.mate) score = bs;
 	}
 
 	void aspiration(const int α, const int β, const int d) {
@@ -307,7 +316,7 @@ final class Search {
 
 	bool persist(const int d) const { return !stop && checkTime(0.7 * option.time.max) && d <= option.depth.max && nNodes < option.nodes.max; }
 
-	void clear() { tt.clear(); }
+	void clear() { tt.clear(); foreach (k; killer) k[] = 0; }
 
 	void resize(const size_t size) { tt.resize(size); }
 
