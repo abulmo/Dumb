@@ -7,7 +7,7 @@
 module move;
 
 import board, util;
-import std.stdio, std.ascii, std.format, std.string, std.algorithm;
+import std.stdio, std.algorithm, std.ascii, std.format, std.math, std.range, std.string;
 
 /* Move */
 alias Move = ushort;
@@ -33,10 +33,14 @@ Move fromPan(string s) {
 	return cast (Move) (from | to << 6 | promotion << 12);
 }
 
+enum ttBonus = 10_000, killerBonus = 10;
+
 /* MoveItem : a move / sorting value*/
 struct MoveItem {
 	Move move;
 	short value;
+
+	bool isTactical() {return value > killerBonus; }
 }
 
 void insertionSort(MoveItem [] items) {
@@ -60,26 +64,19 @@ struct Moves {
 	size_t n;
 	Move ttMove;
 	
+	static int dist(const Square x, const Square y) { return abs(rank(x) - rank(y)) + abs(file(x) - file(y)); }
+	static short cdist(const Square x) { with(Square) return cast (short) min(dist(a1, x), dist(a8, x), dist(h1, x), dist(h8, x)); }
+
 	static immutable short [Piece.size] vPiece = [0, 1, 2, 3, 4, 5, 6];
 	static immutable short [Piece.size] vPromotion = [0, 0, 48, 16, 32, 64, 0];
 	static immutable short [Piece.size] vCapture = [0, 256, 512, 768, 1024, 1280, 1536];
-	static immutable short [Square.size] center = [
-		0, 1, 2, 3, 3, 2, 1, 0,
-		1, 2, 3, 4, 4, 3, 2, 1, 
-		2, 3, 4, 5, 5, 4, 3, 2, 
-		3, 4, 5, 6, 6, 5, 4, 3,
-		3, 4, 5, 6, 6, 5, 4, 3,
-		2, 3, 4, 5, 5, 4, 3, 2, 
-		1, 2, 3, 4, 4, 3, 2, 1, 
-		0, 1, 2, 3, 3, 2, 1, 0
-	];
-	enum ttBonus = 10_000;
+	static immutable short [Square.size] center = allSquares.map!(cdist).array; 
 
 	void clear() { index = n = 0; }
 
 	size_t length() const @property { return n; }
 
-	void generate(bool doQuiet = true)(Board board, const Move ttMove = 0) {
+	void generate(bool doQuiet = true)(Board board, const Move ttMove = 0, const Move [2] killer = [0, 0]) {
 		index = n = 0;
 		if (board.inCheck) board.generateMoves(this); else board.generateMoves!doQuiet(this);
 		foreach(ref i; item[0 .. n]) {
@@ -88,6 +85,8 @@ struct Moves {
 				const p = toPiece(board[i.move.from]);
 				const victim = toPiece(board[i.move.to]);
 				if (victim || i.move.promotion) i.value = cast (short) (vCapture[victim] + vPromotion[i.move.promotion] - vPiece[p]);
+				else if (i.move == killer[0]) i.value = killerBonus;
+				else if (i.move == killer[1]) i.value = killerBonus - 1;
 				else if (p == Piece.king) i.value = 1;
 				else i.value = center[i.move.to];
 			}
