@@ -9,9 +9,7 @@ module dumb;
 import board, eval, move, search, util;
 import std.algorithm, std.array, std.conv, std.stdio, std.string, std.concurrency;
 
-void eventLoop(shared Event e) {
-	e.loop();
-}
+void eventLoop(shared Event e) { e.loop(); }
 
 /* Universal Chess Interface. */
 class Uci {
@@ -63,7 +61,7 @@ class Uci {
 	}
 
 	void uci() const {
-		send("id name dumb 1.3");
+		send("id name dumb 1.4");
 		send("id author Richard Delorme");
 		send("option name Ponder type check default false");
 		send("option name Hash type spin default 64 min 1 max 65536");
@@ -198,7 +196,7 @@ class Uci {
 			{"19. Double check", "8/8/2k5/5q2/5n2/8/5K2/8 b - - 0 1", 4, 23_527},
 		];
 
-		send("Testing the board generator");
+		send("Testing the move generator");
 		foreach (test; tests) {
 			write("Test ", test.comments, " ", test.fen); stdout.flush();
 			board.set(test.fen);
@@ -262,8 +260,8 @@ class Uci {
 /* main function */
 void main(string [] args) {
 	Uci uci = new Uci;
-	if (args[1] == "--bench" || args[1] == "-b") uci.bench(to!int(args[2]));
-	else if (args[1] == "--test" || args[1] == "-t") uci.test();
+	if (args.length > 1 && (args[1] == "--bench" || args[1] == "-b")) uci.bench(to!int(args[2]));
+	else if (args.length > 1 && (args[1] == "--test" || args[1] == "-t")) uci.test();
 	else uci.loop();
 }
 
