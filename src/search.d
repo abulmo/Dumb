@@ -1,7 +1,7 @@
 /*
  * File search.d
  * Best move search.
- * © 2017-2019 Richard Delorme
+ * © 2017-2020 Richard Delorme
  */
 
 module search;
@@ -60,7 +60,7 @@ final class TranspositionTable {
 		return false;
 	}
 
-	void store(const Key k, const int depth, const int ply, const Bound b, const int v, const Move m) {
+	void store(const Key k, const int depth, const int ply, const Bound b, const int v, const Move m) @trusted {
 		const size_t i = cast (size_t) (k.code & mask);
 		Entry *w = &entry[i];
 		foreach (ref h; entry[i .. i + bucketSize]) {
@@ -131,7 +131,7 @@ final class Search {
 		if (score > Score.high) f.write("mate ", (Score.mate + 1 - score) / 2);
 		else if (score < -Score.high) f.write("mate ", -(Score.mate + score) / 2);
 		else f.write("cp ", score);
-		f.writefln(" nps %.0f time %.0f nodes %s pv %s", nNodes / timer.time, 1000 * timer.time, nNodes, pv[0]);
+		f.writefln(" nodes %s time %.0f nps %.0f pv %s", nNodes, 1000 * timer.time, nNodes  / timer.time, pv[0]);
 		f.flush();
 	}
 
@@ -161,7 +161,6 @@ final class Search {
 		s = Score.mate - ply - 1;
 		if (s < β && (β = s) <= α) return s;			
 
-		const αOld = α;
 		if (!board.inCheck) {
 			bs = eval(board);
 			if ((bs > α) && (α = bs) >= β) return bs;
@@ -171,7 +170,7 @@ final class Search {
 
 		moves.generate!false(board);
 
-		while ((m = moves.next.move) != 0) {
+		while ((m = moves.next.move) != 0) if (board.see(m) >= 0) {
 			update(m);
 				s = -qs(-β, -α);
 			restore(m);
@@ -215,7 +214,7 @@ final class Search {
 		if (!isPv && !board.inCheck && abs(v) < Score.big) {
 			const δ = 200 * d - 100;
 			if (v >= β + δ) return β;
-			if (v <=  α - δ && d <= 2) return qs(α, β);
+			if (v <= α - δ && d <= 2) return qs(α, β);
 
 			if (v >= β && (board.color[board.player] & ~(board.piece[Piece.pawn] | board.piece[Piece.king]))) {
 				r = 3;
@@ -227,14 +226,6 @@ final class Search {
 					tt.store(board.key, d, ply, Bound.lower, s, h.move);
 					return s;
 				}
-			}
-		}
-
-		if (h.move == 0) {
-			r = isPv ? 2 : max(4, 2 + d / 4);
-			if (d > r) {
-				αβ(α, β, d - r);
-				tt.probe(board.key, h);
 			}
 		}
 
