@@ -4,19 +4,38 @@
 
 SRC = dumb.d util.d board.d eval.d move.d search.d
 
-DC = ldc2
-
-#lcd2
 ifeq ($(TARGET),)
 	TARGET = native
 endif
-FFLAGS = -O3 -release -singleobj -w -dw  -dip25 -dip1000 -flto=full -mcpu=$(TARGET)
-DFLAGS = -O0 -g -gc
-CFLAGS = $(DFLAGS) -cov
-PGO_GEN = -fprofile-instr-generate
-PGO_USE = -fprofile-instr-use=dumb.profdata
-PGO_MERGE = ldc-profdata merge -output=dumb.profdata dumb-*.profraw
-PGO_FILE = LLVM_PROFILE_FILE=dumb-%p.profraw
+
+ifeq ($(DC),)
+	DC = gdc
+endif
+
+#gdc
+ifeq ($(DC),gdc)
+	COMMON = -W -Wno-uninitialized -Wall -Wextra -march=$(TARGET) -o dumb
+	FFLAGS = -O3 -frelease -fno-bounds-check -flto $(COMMON)
+	DFLAGS = -O0 -g -fdebug $(COMMON)
+	CFLAGS = $(DFLAGS) -gcov $(COMMON)
+	PFLAGS = -O1 -frelease  fno-bounds-check -march=$(TARGET $(COMMON))
+	PGO_GEN = -fprofile-generate -lgcov
+	PGO_USE = -fprofile-use
+	PGO_MERGE = 
+	PGO_FILE =
+endif
+
+#ldc2
+ifeq ($(DC),ldc2)
+	FFLAGS = -O3 -release -boundscheck=off -singleobj -w -dw  -flto=full -mcpu=$(TARGET) -defaultlib=phobos2-ldc-lto,druntime-ldc-lto
+	DFLAGS = -O0 -g -gc
+	CFLAGS = $(DFLAGS) -cov
+	PFLAGS = -O1 -release -singleobj -mcpu=$(TARGET)
+	PGO_GEN = -fprofile-generate
+	PGO_USE = -fprofile-use=dumb.profdata
+	PGO_MERGE = ldc-profdata merge -output=dumb.profdata dumb-*.profraw
+	PGO_FILE = LLVM_PROFILE_FILE=dumb-%p.profraw
+endif
 
 # executable target
 EXE = dumb
@@ -30,6 +49,9 @@ pgo:$(SRC)
 
 debug:$(SRC)
 	$(DC) $(DFLAGS) $(SRC)
+
+perf:$(SRC)
+	$(DC) $(PFLAGS) $(SRC)
 
 cov:$(SRC)
 	$(DC) $(CFLAGS) $(SRC)
