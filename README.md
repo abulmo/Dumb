@@ -1,11 +1,11 @@
 # Dumb
-A simple &amp; stupid UCI chess engine
+A simple &amp; (not so) stupid UCI chess engine
 
 Dumb is based on the following algorithms:
 
- - Bitboard/mailbox legal move generator based on magic bitboard
- - PVS/negascout search with aspiration window
- - simple quiescence search with see pruning
+ - Bitboard/mailbox legal move generator based on magic bitboards (new in 1.5)
+ - PVS/negascout search with aspiration windows
+ - simple quiescence search with see pruning (new in 1.5)
  - simple 4-bucket hash table (no ageing)
  - simple evaluation function with knowledge limited to material, positional and tempo (no pawn structure, mobility, king safety, imbalance, trapped pieces, ...) tuned to probably suboptimal coefficients.
  - simple (insertion) move sorting: hash move + mvvlva ordered capture/promotions + killer moves + quiet moves (no history)
