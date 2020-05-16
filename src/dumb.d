@@ -7,7 +7,7 @@
 module dumb;
 
 import board, eval, move, search, util;
-import std.algorithm, std.array, std.conv, std.stdio, std.string, std.concurrency;
+import std.algorithm, std.array, std.concurrency, std.conv, std.stdio, std.string;
 
 void eventLoop(shared Event e) { e.loop(); }
 
@@ -34,12 +34,12 @@ class Uci {
 		canPonder = false;
 	}
 
-	void send(T...) (T args) const {
+	void send(T...) (T args) const @trusted {
 		writeln(args);
 		stdout.flush();
 	}
 
-	void sendf(T...) (T args) const {
+	void sendf(T...) (T args) const @trusted {
 		writefln(args);
 		stdout.flush();
 	}
@@ -61,7 +61,7 @@ class Uci {
 	}
 
 	void uci() const {
-		send("id name dumb 1.4");
+		send("id name dumb 1.5");
 		send("id author Richard Delorme");
 		send("option name Ponder type check default false");
 		send("option name Hash type spin default 64 min 1 max 65536");
@@ -129,7 +129,7 @@ class Uci {
 		double t = 0.0;
 
 		moves.clear();
-		foreach(c ; Color.white .. Color.size) time[c].clear();
+		foreach (c ; Color.white .. Color.size) time[c].clear();
 
 		foreach (fen; fens) {
 			board.set(fen);
@@ -143,32 +143,32 @@ class Uci {
 		send("bench: ", n, " nodes in ", t, " s, ", cast (int) (n / t), " nps.");
 	}
 
-	ulong perft(const int depth, const bool div) {
+	ulong perft(bool div = false)(const int depth) {
 		Moves ms = void;
 		ulong count, total;
 		Move m;
-		Chrono t;
+		Chrono t = void;
 
-		if (div) t.start();
+		static if (div) t.start();
 
-		ms.generate(board);
+		ms.generateAll(board);
 
-		if (!div && depth == 1) return ms.length;
+		static if (!div) if (depth == 1) return ms.length;
 
 		while ((m = ms.next.move) != 0) {
 			board.update(m);
-				if (div && depth == 1) count = 1; else count = perft(depth - 1, false);
+				if (depth == 1) count = 1; else count = perft(depth - 1);
 				total += count;
-				if (div) sendf("%5s %16d", m.toPan(), count);
+				static if (div) sendf("%5s %16d", m.toPan(), count);
 			board.restore(m);
 		}
 
-		if (div) sendf("perft %d: %d leaves const %.3fs (%.0f leaves/s)", depth, total, t.time(), total / t.time());
+		static if (div) sendf("perft %d: %d leaves const %.3fs (%.0f leaves/s)", depth, total, t.time(), total / t.time());
 
 		return total;
 	}
 
-	void test() {
+	void test() @trusted {
 		struct TestBoard {
 			string comments, fen;
 			int depth;
@@ -176,7 +176,7 @@ class Uci {
 		}
 		TestBoard [] tests = [
 			{"1. Initial position ", "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 6, 119_060_324},
-			{"2.", "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq -", 5, 193_690_690},
+			{"2. Kiwipete", "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq -", 5, 193_690_690},
 			{"3.", "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - -", 7, 178_633_661},
 			{"4.", "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1", 6, 706_045_033},
 			{"5.", "rnbqkb1r/pp1p1ppp/2p5/4P3/2B5/8/PPP1NnPP/RNBQK2R w KQkq - 0 6", 3, 53_392},
@@ -200,7 +200,7 @@ class Uci {
 		foreach (test; tests) {
 			write("Test ", test.comments, " ", test.fen); stdout.flush();
 			board.set(test.fen);
-			if (perft(test.depth, false) == test.result) send(" passed"); else send(" FAILED !");
+			if (perft(test.depth) == test.result) send(" passed"); else send(" FAILED !");
 		}
 	}
 
@@ -212,9 +212,9 @@ class Uci {
 		moves.clear();
 		option.depth.max = Limits.ply.max;
 		option.nodes.max = ulong.max;
-		foreach(c ; Color.white .. Color.size) time[c].clear();
+		foreach (c ; Color.white .. Color.size) time[c].clear();
 		isPondering = false;
-		foreach(i, ref w ; words) {
+		foreach (i, ref w ; words) {
 			if (w == "searchmoves") foreach(m ; words[i..$]) moves.push(fromPan(m));
 			else if (w == "ponder") isPondering = true;
 			else if (w == "wtime" && i + 1 < words.length) time[Color.white].remaining = 0.001 * to!double(words[i + 1]);
@@ -235,7 +235,7 @@ class Uci {
 		if (!isInfinite && !isPondering) bestmove();
 	}
 
-	void loop() {
+	void loop() @trusted {
 		spawn(&eventLoop, event);
 		while (true) {
 			auto line = event.wait();
@@ -250,7 +250,7 @@ class Uci {
 			else if (findSkip(line, "quit")) break;
 			else if (findSkip(line, "debug")) {}
 			else if (findSkip(line, "register")) {}
-			else if (findSkip(line, "perft ")) perft(to!int(line), true);
+			else if (findSkip(line, "perft ")) perft!true(to!int(line));
 			else if (findSkip(line, "bench ")) bench(to!int(line));
 			else send("error unknown command: '", line, "'");
 		}
