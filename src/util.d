@@ -2,25 +2,19 @@
  * File util.d
  * Fast implementation on X86_64, portable algorithm for other platform
  * of some bit functions.
- * © 2017-2019 Richard Delorme
+ * © 2017-2020 Richard Delorme
  */
 
 module util;
 import std.stdio, std.array, std.string, std.datetime, std.format;
 import core.bitop, core.time, core.thread, core.simd;
 
-version (LDC) import ldc.intrinsics;
-else version (GNU) import gcc.builtins;
-
 /* bit utilities */
-version (LDC) alias swapBytes = llvm_bswap;
-else version(GNU) alias swapBytes = __builtin_bswap64;
-else alias swapBytes = bswap;
+alias swapBytes = bswap;
 
 bool hasSingleBit(const ulong b) { return (b & (b - 1)) == 0; }
 
-version (LDC) int firstBit(ulong b) {return cast (int) llvm_cttz(b, true);}
-else alias firstBit = bsf;
+alias firstBit = bsf;
 
 int popBit(ref ulong b) {
 	const int i = firstBit(b);
@@ -28,9 +22,7 @@ int popBit(ref ulong b) {
 	return i;
 }
 
-version (GNU) alias countBits = __builtin_popcountll;
-else version (LDC) int countBits(const ulong b) {return cast (int) llvm_ctpop(b);}
-else alias countBits = _popcnt;
+alias countBits = popcnt;
 
 /* struct Chrono */
 struct Chrono {
@@ -84,12 +76,12 @@ shared class Event {
 		}
 	}
 
-	string wait() {
+	string wait() @trusted {
 		while (empty) Thread.sleep(1.msecs);
 		return peek();
 	}
 
-	void loop() {
+	void loop() @trusted {
 		string line;
 		do {
 			line = readln().chomp();
