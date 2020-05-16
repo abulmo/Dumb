@@ -1,7 +1,7 @@
 /*
  * File move.d
  * move, list of moves & sequence of moves.
- * © 2017-2019 Richard Delorme
+ * © 2017-2020 Richard Delorme
  */
 
 module move;
@@ -40,18 +40,14 @@ struct MoveItem {
 	Move move;
 	short value;
 
-	bool isTactical() {return value > killerBonus; }
+	bool isTactical() { return value > killerBonus; }
 }
 
 void insertionSort(MoveItem [] items) {
-	const size_t n = items.length;
-
-	foreach (i; 1 .. n) {
+	foreach (i; 1 .. items.length) {
 		size_t j;
 		const tmp = items[i];
-	    for (j = i ; j > 0 && tmp.value > items[j - 1].value; j--) {
-			items[j] = items[j - 1];
-		}
+	    for (j = i ; j > 0 && tmp.value > items[j - 1].value; j--) items[j] = items[j - 1];
 		items[j] = tmp;
 	}
 }
@@ -60,9 +56,7 @@ void insertionSort(MoveItem [] items) {
 struct Moves {
 	enum size = 256;
 	MoveItem [size] item;
-	size_t index;
-	size_t n;
-	Move ttMove;
+	size_t index, n;
 	
 	static int dist(const Square x, const Square y) { return abs(rank(x) - rank(y)) + abs(file(x) - file(y)); }
 	static short cdist(const Square x) { with(Square) return cast (short) min(dist(a1, x), dist(a8, x), dist(h1, x), dist(h8, x)); }
@@ -78,7 +72,7 @@ struct Moves {
 
 	void generate(bool doQuiet = true)(Board board, const Move ttMove = 0, const Move [2] killer = [0, 0]) {
 		index = n = 0;
-		if (board.inCheck) board.generateMoves(this); else board.generateMoves!doQuiet(this);
+		if (board.inCheck) board.generateMoves!true(this); else board.generateMoves!doQuiet(this);
 		foreach(ref i; item[0 .. n]) {
 			if (i.move == ttMove) i.value = ttBonus;
 			else {
@@ -95,6 +89,12 @@ struct Moves {
 		item[n] = MoveItem.init;
 	}
 	
+	void generateAll(Board board) {
+		index = n = 0;
+		board.generateMoves!true(this);
+		item[n] = MoveItem.init;
+	}
+
 	ref MoveItem next() return { return item[index++]; }
 
 	void setBest(const Move m, const size_t i = 0) {
