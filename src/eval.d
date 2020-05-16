@@ -1,7 +1,7 @@
 /*
  * File eval.d
  * Evaluation function
- * © 2017-2019 Richard Delorme
+ * © 2017-2020 Richard Delorme
  */
 
 module eval;
@@ -73,8 +73,8 @@ final class Eval {
 		foreach(x; allSquares) mixin("w[x]." ~ phase) += cast (int) (p[x] - m);
 
 		if (r == Adjustment.min) {
-			int d = int.max; foreach(x; Square.a2 .. Square.a8) d = min(d, mixin("w[x]." ~ phase));
-			foreach(x; Square.a2 .. Square.a8) mixin("w[x]." ~ phase) -= d;
+			int d = int.max; foreach (x; Square.a2 .. Square.a8) d = min(d, mixin("w[x]." ~ phase));
+			foreach (x; Square.a2 .. Square.a8) mixin("w[x]." ~ phase) -= d;
 		}
 	}
 
