@@ -57,5 +57,5 @@ cov:$(SRC)
 	$(DC) $(CFLAGS) $(SRC)
 
 clean:
-	$(RM) *.o *.profraw *.profdata *.lst
+	$(RM) *.o *.profraw *.profdata *.lst *.gcda
 
