@@ -10,19 +10,13 @@ import std.stdio, std.array, std.string, std.datetime, std.format;
 import core.bitop, core.time, core.thread, core.simd;
 
 /* bit utilities */
-alias swapBytes = bswap;
-
 bool hasSingleBit(const ulong b) { return (b & (b - 1)) == 0; }
 
-alias firstBit = bsf;
-
 int popBit(ref ulong b) {
-	const int i = firstBit(b);
+	const int i = bsf(b);
 	b &= b - 1;
 	return i;
 }
-
-alias countBits = popcnt;
 
 /* struct Chrono */
 struct Chrono {
