@@ -8,6 +8,7 @@ module eval;
 
 import board, move, util;
 import std.algorithm, std.range;
+import core.bitop;
 
 enum Score {mate = 30_000, low = -29_000, high = 29_000, big = 3_000}
 
@@ -140,7 +141,7 @@ final class Eval {
 		foreach(c; Color.white .. Color.size) {
 			foreach(p; Piece.pawn .. Piece.size) {
 				ulong b = board.color[c] & board.piece[p];
-				const n = countBits(b);
+				const n = popcnt(b);
 				s.stage += stageValue[p] * n;
 				while (b) {
 					const Square x = popSquare(b);
