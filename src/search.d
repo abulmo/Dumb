@@ -8,6 +8,7 @@ module search;
 
 import board, eval, move, util;
 import std.stdio, std.string, std.format, std.algorithm, std.math;
+import core.bitop;
 
 /* Hash table score bound */
 enum Bound {none, upper, lower, exact}
@@ -45,7 +46,7 @@ final class TranspositionTable {
 	}
 
 	void resize(size_t size) {
-		mask = (1 << firstBit(size / Entry.sizeof)) - 1;
+		mask = (1 << bsf(size / Entry.sizeof)) - 1;
 		entry.length = mask + bucketSize;
 	}
 
@@ -126,7 +127,7 @@ final class Search {
 		return stop;
 	}
 
-	void writeUCI(const int d, std.stdio.File f=stdout) const {
+	void writeUCI(const int d, std.stdio.File f=stdout) const @trusted {
 		f.write("info depth ", d, " score ");
 		if (score > Score.high) f.write("mate ", (Score.mate + 1 - score) / 2);
 		else if (score < -Score.high) f.write("mate ", -(Score.mate + score) / 2);
@@ -170,7 +171,7 @@ final class Search {
 
 		moves.generate!false(board);
 
-		while ((m = moves.next.move) != 0) if (board.see(m) >= 0) {
+		while ((m = moves.next.move) != 0) {
 			update(m);
 				s = -qs(-β, -α);
 			restore(m);
@@ -299,7 +300,7 @@ final class Search {
 			λ = max(α, λ); υ = min(β, υ);
 			αβRoot(λ, υ, d);
 			if      (score <= λ && λ > α) { υ = (λ + υ) / 2; λ = score - δ; }
-			else if (score >= υ && υ < β) {	λ = (λ + υ) / 2; υ = score + δ; }
+			else if (score >= υ && υ < β) { λ = (λ + υ) / 2; υ = score + δ; }
 			else break;
 		}
 		writeUCI(d);
