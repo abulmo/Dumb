@@ -47,7 +47,7 @@ void insertionSort(MoveItem [] items) {
 	foreach (i; 1 .. items.length) {
 		size_t j;
 		const tmp = items[i];
-	    for (j = i ; j > 0 && tmp.value > items[j - 1].value; j--) items[j] = items[j - 1];
+	    	for (j = i ; j > 0 && tmp.value > items[j - 1].value; j--) items[j] = items[j - 1];
 		items[j] = tmp;
 	}
 }
