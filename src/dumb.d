@@ -36,14 +36,14 @@ class Uci {
 	double setTime() const {
 		const p = board.player;
 		double t = time[p].remaining;
-		int todo = 40;
 
 		if (t > 0) {
-			if (movesToGo > 0) todo = movesToGo;
+			const int todo = movesToGo > 0 ? todo = movesToGo : 40;
 			t += time[p].increment * todo;
 			t = max(t - 1.0, 0.95 * t) / todo;
 		} else {
-			t = time[p].increment > 0 ? max(t - 1.0, 0.95 * time[p].increment) : double.infinity;
+			t = time[p].increment;
+			t = t > 0 ? max(t - 1.0, 0.95 * t) : double.infinity;
 		}
 
 		return t;
