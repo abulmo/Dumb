@@ -149,39 +149,20 @@ struct Key {
 }
 
 
-/* Magic */
-struct Attack {
-	ulong mask, magic, shift;
-	ulong [] attack;
-
-	this(const Square x, const ulong mk, const ulong mg, const int [2][4] dir) {
-		mask = mk;
-		magic = mg;
-		shift = 64 - popcnt(mk);
-		attack.length = 1 << popcnt(mk);
-		ulong o = 0; do {
-			attack[Board.magicIndex(o, this)] = Board.computeAttack(x, o, dir);
-		} while ((o = (o - mk) & mk) != 0);
-	}
-}
-
 /* Bitmask */
 struct Mask {
 	ulong bit, diagonal, antidiagonal, file, rank;
 	ulong [Color.size] pawnAttack, push;
 	ulong enpassant, knight, king;
-	Attack bishop, rook;
 	ulong [Square.size] between;
 	ubyte [Square.size] direction;
 	ubyte castling;
 }
 
-/* Kind of move Generation */
-enum Generate {all, capture, quiet}
-
 /* Class board */
 final class Board {
 	static immutable Mask [Square.size] mask;
+	static immutable ubyte [512] ranks;
 	static immutable Castling [Color.size] kingside = [Castling.K, Castling.k];
 	static immutable Castling [Color.size] queenside = [Castling.Q, Castling.q];
 	static immutable int [Piece.size] seeValue = [0, 1, 3, 3, 5, 9, 300];
@@ -205,35 +186,13 @@ final class Board {
 	Color player;
 	int ply, plyOffset;
 
-	shared static this() @trusted {
+	shared static this() {
 		int b, y, z;
 		byte [Square.size] d;
 		static immutable ubyte [6] castling = [13, 12, 14, 7, 3, 11];
 		static immutable Square [6] castlingX = [Square.a1, Square.e1, Square.h1, Square.a8, Square.e8, Square.h8];
 		static immutable int [2][8] knightDir = [[-2,-1], [-2,1], [-1,-2], [-1,2], [1,-2], [1,2], [2,-1], [2,1]];
-	    static const int [2][4] bishopDir = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
-		static const int [2][4] rookDir = [[-1, 0], [0, -1], [0, 1], [1, 0]];
 		static immutable int [2][8] kingDir   = [[-1,-1], [-1,0], [-1,1], [0,-1], [0,1], [1,-1], [1,0], [1,1]];
-		static immutable ulong [Square.size] bishopMagic = [
-			0x88b030028800d040, 0x018242044c008010, 0x0010008200440000, 0x4311040888800a00, 0x001910400000410a, 0x2444240440000000, 0x0cd2080108090008, 0x2048242410041004,
-			0x8884441064080180, 0x00042131420a0240, 0x0028882800408400, 0x204384040b820200, 0x0402040420800020, 0x0000020910282304, 0x0096004b10082200, 0x4000a44218410802,
-			0x0808034002081241, 0x00101805210e1408, 0x9020400208010220, 0x000820050c010044, 0x0024005480a00000, 0x0000200200900890, 0x808040049c100808, 0x9020202200820802,
-			0x0410282124200400, 0x0090106008010110, 0x8001100501004201, 0x0104080004030c10, 0x0080840040802008, 0x2008008102406000, 0x2000888004040460, 0x00d0421242410410,
-			0x8410100401280800, 0x0801012000108428, 0x0000402080300b04, 0x0c20020080480080, 0x40100e0201502008, 0x4014208200448800, 0x4050020607084501, 0x1002820180020288,
-			0x800610040540a0c0, 0x0301009014081004, 0x2200610040502800, 0x0300442011002800, 0x0001022009002208, 0x0110011000202100, 0x1464082204080240, 0x0021310205800200,
-			0x0814020210040109, 0xc102008208c200a0, 0xc100702128080000, 0x0001044205040000, 0x0001041002020000, 0x4200040408021000, 0x004004040c494000, 0x2010108900408080,
-			0x0000820801040284, 0x0800004118111000, 0x0203040201108800, 0x2504040804208803, 0x0228000908030400, 0x0010402082020200, 0x00a0402208010100, 0x30c0214202044104
-		];
-		static immutable ulong [Square.size] rookMagic = [
-			0x808000645080c000, 0x208020001480c000, 0x4180100160008048, 0x8180100018001680, 0x4200082010040201, 0x8300220400010008, 0x3100120000890004, 0x4080004500012180,
-			0x01548000a1804008, 0x4881004005208900, 0x0480802000801008, 0x02e8808010008800, 0x08cd804800240080, 0x8a058002008c0080, 0x0514000c480a1001, 0x0101000282004d00,
-			0x2048848000204000, 0x3020088020804000, 0x4806020020841240, 0x6080420008102202, 0x0010050011000800, 0xac00808004000200, 0x0000010100020004, 0x1500020004004581,
-			0x0004c00180052080, 0x0220028480254000, 0x2101200580100080, 0x0407201200084200, 0x0018004900100500, 0x100200020008e410, 0x0081020400100811, 0x0000012200024494,
-			0x8006c002808006a5, 0x0004201000404000, 0x0005402202001180, 0x0000081001002100, 0x0000100801000500, 0x4000020080800400, 0x4005050214001008, 0x810100118b000042,
-			0x0d01020040820020, 0x000140a010014000, 0x0420001500210040, 0x0054210010030009, 0x0004000408008080, 0x0002000400090100, 0x0000840200010100, 0x0000233442820004,
-			0x800a42002b008200, 0x0240200040009080, 0x0242001020408200, 0x4000801000480480, 0x2288008044000880, 0x000a800400020180, 0x0030011002880c00, 0x0041110880440200,
-			0x0002001100442082, 0x01a0104002208101, 0x080882014010200a, 0x0000100100600409, 0x0002011048204402, 0x0012000168041002, 0x080100008a000421, 0x0240022044031182
-		];
 
 		Square square (int f, int r) { return (0 <= r && r <= 7 && 0 <= f && f <= 7) ? toSquare(f, r) : Square.none; }
 
@@ -242,19 +201,16 @@ final class Board {
 		foreach (x; allSquares) {
 
 			const int f = file(x), r = rank(x);
-			const ulong inside = ~(((rankMask[0] | rankMask[7]) & ~rankMask[r]) | ((fileMask[0] | fileMask[7]) & ~fileMask[f]));
 
 			mask[x].bit = 1UL << x;
 
-			foreach (dir; kingDir) {
-				foreach (k; 1 .. 8) {
-					y = square(f + k * dir[0], r + k * dir[1]);
-					if (y != Square.none) {
-						d[y] = cast (byte) (dir[0] + 8 * dir[1]);
-						mask[x].direction[y] = abs(d[y]);
-						for (z = x + d[y]; z != y; z += d[y]) mask[x].between[y] |= 1UL << z;
-					}
-			 	}
+			foreach (dir; kingDir)
+			foreach (k; 1 .. 8) {
+				y = square(f + k * dir[0], r + k * dir[1]);
+				if (y == Square.none) break;
+				d[y] = cast (byte) (dir[0] + 8 * dir[1]);
+				mask[x].direction[y] = abs(d[y]);
+				for (z = x + d[y]; z != y; z += d[y]) mask[x].between[y] |= 1UL << z;
 			}
 
 			for (y = x - 9; y >= 0 && d[y] == -9; y -= 9) mask[x].diagonal |= 1UL << y;
@@ -273,14 +229,29 @@ final class Board {
 				if (f < 7) mask[x].enpassant |=  1UL << x + 1;
 			}
 			foreach (dir; knightDir) mask[x].knight |= bit(f + dir[0], r + dir[1]);
-			foreach (dir; kingDir) 	 mask[x].king   |= bit(f + dir[0], r + dir[1]);
-			mask[x].bishop = cast (immutable) Attack(x, (mask[x].diagonal | mask[x].antidiagonal) & inside, bishopMagic[x], bishopDir);
-			mask[x].rook = cast (immutable) Attack(x, (mask[x].rank | mask[x].file) & inside, rookMagic[x], rookDir);
+			foreach (dir; kingDir) mask[x].king   |= bit(f + dir[0], r + dir[1]);
 
 			mask[x].castling = 15;
 		}
 
 		foreach (k; 0 .. 6) mask[castlingX[k]].castling = castling[k];
+
+		foreach (o; 0 .. 64) {
+			foreach (k; 0 .. 8) {
+				y = 0;
+				foreach_reverse (x; 0 .. k) {
+					b = 1 << x;
+					y |= b;
+					if (((o << 1) & b) == b) break;
+				}
+				foreach (x; k + 1 .. 8) {
+					b = 1 << x;
+					y |= b;
+					if (((o << 1) & b) == b) break;
+				}
+				ranks[o * 8 + k] = cast (ubyte) y;
+			}
+		}
 	}
 
 	bool canCastle(const Castling side, const int k, const int r, const ulong occupancy) const {
@@ -290,19 +261,24 @@ final class Board {
 		return true;
 	}
 
-	static ulong computeAttack(const Square x, const ulong o, const int [2][4] dir) {
-		ulong a, b;
-
-		foreach (d; dir) {
-			for (int r = rank(x) + d[0], f = file(x) + d[1]; 0 <= r && r < 8 && 0 <= f && f < 8; r += d[0], f += d[1]) {
-				a |= (b = 1UL << toSquare(f, r));
-				if ((o & b) != 0) break;
-			}
-		}
-		return a;
+	static ulong attack(const ulong occupancy, const Square x, const ulong m)  {
+		const ulong o = occupancy & m;
+		const ulong r = bswap(o);
+		return ((o - mask[x].bit) ^ bswap(r - mask[x ^ 56].bit)) & m;
 	}
 
-	static ulong magicIndex(const ulong o, const ref Attack attack) { return ((o & attack.mask) * attack.magic) >> attack.shift; }
+	static ulong rankAttack(const ulong occupancy, const Square x) {
+		const int f = x & 7;
+		const int r = x & 56;
+		const ulong o = (occupancy >> r) & 126;
+		return ulong(ranks[o * 4  + f]) << r;
+	}
+
+	static ulong fileAttack(const ulong occupancy, const Square x) { return attack(occupancy, x, mask[x].file);	}
+
+	static ulong diagonalAttack(const ulong occupancy, const Square x) { return attack(occupancy, x, mask[x].diagonal);	}
+
+	static ulong antidiagonalAttack(const ulong occupancy, const Square x) { return attack(occupancy, x, mask[x].antidiagonal);	}
 
 	void setPinsCheckers(ref ulong checkers, ref ulong pins) {
 		const Color enemy = opponent(player);
@@ -403,9 +379,9 @@ final class Board {
 		final switch (p) {
 			case Piece.pawn:   return mask[x].pawnAttack[c];
 			case Piece.knight: return mask[x].knight;
-			case Piece.bishop: return mask[x].bishop.attack[magicIndex(occupancy, mask[x].bishop)];
-			case Piece.rook:   return mask[x].rook.attack[magicIndex(occupancy, mask[x].rook)];
-			case Piece.queen:  return mask[x].bishop.attack[magicIndex(occupancy, mask[x].bishop)] + mask[x].rook.attack[magicIndex(occupancy, mask[x].rook)];
+			case Piece.bishop: return diagonalAttack(occupancy, x) + antidiagonalAttack(occupancy, x);
+			case Piece.rook:   return fileAttack(occupancy, x) + rankAttack(occupancy, x);
+			case Piece.queen:  return diagonalAttack(occupancy, x) + antidiagonalAttack(occupancy, x) + fileAttack(occupancy, x) + rankAttack(occupancy, x);
 			case Piece.king:   return mask[x].king;
 			case Piece.none, Piece.size: return 0;
 		}
@@ -494,22 +470,12 @@ final class Board {
 
 	bool inCheck() const @property { return stack[ply].checkers > 0; }
 
-	bool isMated() const {
-		Moves moves = void;
-		if (inCheck) {
-			moves.n = 0;
-			generateMoves(moves);
-			return moves.n == 0;
-		}
-		return false;
-	}
-
 	bool isDraw() const  @property {
 		int nRepetition = 0;
 		const end = max(0, ply - stack[ply].fifty);
 		for (int i = ply - 4; i >= end; i -= 2) if (stack[i].key.code == stack[ply].key.code && ++nRepetition >= 2) return true;
 
-		if (stack[ply].fifty >= 100 && !isMated) return true;
+		if (stack[ply].fifty > 100) return true;
 
 		if (piece[Piece.pawn] + piece[Piece.rook] + piece[Piece.queen] == 0) {
 			const nMinor = popcnt(piece[Piece.knight] + piece[Piece.bishop]);
@@ -522,6 +488,8 @@ final class Board {
 
 		return false;
 	}
+
+	bool isEnpassantCapture(const Move move) { return stack[ply].enpassant == move.to && cpiece[move.from] == toCPiece(Piece.pawn, player); }
 
 	void update(const Move move) {
 		const to = mask[move.to].bit;
@@ -621,8 +589,9 @@ final class Board {
 				x = firstSquare(checkers);
 				empties = mask[k].between[x];
 				enemies = checkers;
+				target = enemies; static if (doQuiet) target |= empties;
 			} else {
-				enemies = empties = 0;
+				target = enemies = empties = 0;
 			}
 		} else {
 			target = enemies; static if (doQuiet) target |= empties;
@@ -664,8 +633,6 @@ final class Board {
 				else if (d == 8) generateMoves(moves, attack(Piece.rook, from, target & mask[from].file, occupancy), from);
 			}
 		}
-		
-		target = enemies; static if (doQuiet) target |= empties;
 
 		if (stack[ply].enpassant != Square.none && (!checkers || x == stack[ply].enpassant.shift)) {
 			to = stack[ply].enpassant;
@@ -710,5 +677,45 @@ final class Board {
 		}
 	}
 
+	Piece nextAttacker(ref ulong [Color.size] board, const Square to, const Color player, const Color enemy, ref Piece [Color.size] last) const {
+		const Piece [Piece.size] next = [Piece.none, Piece.pawn, Piece.knight, Piece.bishop, Piece.rook, Piece.bishop, Piece.size];
+		const ulong occupancy = board[player] | board[enemy];
+		ulong attacker;
+
+		for (Piece p = next[last[player]]; p <= Piece.king; ++p) {
+			if ((attacker = attack(p, to, piece[p] & board[player], occupancy, enemy)) != 0) {
+				board[player] ^= (attacker & -attacker);
+				last[player] = p;
+				return p;
+			}
+		}
+		return Piece.none;
+	}
+
+	int see(const Move move) const {
+		const Color enemy = opponent(player);
+		const Piece p = toPiece(cpiece[move.from]);
+		ulong [Color.size] board = color;
+		Piece [Color.size] last = [Piece.pawn, Piece.pawn];
+		Piece attacker = (p == Piece.pawn && stack[ply].enpassant == move.to) ? Piece.pawn : toPiece(cpiece[move.to]);
+		int score = seeValue[attacker], α = score - seeValue[p], β = score;
+
+		if (α <= 0) {
+			board[player] ^= mask[move.from].bit;
+			score -= seeValue[p];
+			if ((attacker = nextAttacker(board, move.to, enemy, player, last)) == Piece.none) return β;
+			while (true) {
+				score += seeValue[attacker];
+				if (score <= α || (attacker = nextAttacker(board, move.to, player, enemy, last)) == Piece.none) return α;
+				if (score < β) β = score;
+
+				score -= seeValue[attacker];
+				if (score >= β || (attacker = nextAttacker(board, move.to, enemy, player, last)) == Piece.none) return β;
+				if (score > α) α = score;
+			}
+		}
+
+		return score;
+	}
 }
 
