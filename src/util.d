@@ -28,7 +28,7 @@ struct Chrono {
 }
 
 /* class Event */
-shared class Event {
+final shared class Event {
 	string [] ring;
 	size_t first, last;
 	class Lock {}
@@ -70,12 +70,12 @@ shared class Event {
 		}
 	}
 
-	string wait() @trusted {
+	string wait() {
 		while (empty) Thread.sleep(1.msecs);
 		return peek();
 	}
 
-	void loop() @trusted {
+	void loop() {
 		string line;
 		do {
 			line = readln().chomp();
@@ -88,10 +88,10 @@ shared class Event {
 string findBetween(string s, string start, string end) {
 	size_t i, j;
 
-	for (; i < s.length; ++i) if (s[i .. i + start.length] == start) break;
-	i += start.length; if (i > s.length) i = s.length;
-	for (j = i; j < s.length; ++j) if (s[j .. j + end.length] == end) break;
+	for (; i < s.length - start.length; ++i) if (s[i .. i + start.length] == start) break;
+	i += start.length;
+	for (j = i; j < s.length - end.length; ++j) if (s[j .. j + end.length] == end) return s[i .. j];
 
-	return s[i .. j];
+	return s[i .. $];
 }
 
