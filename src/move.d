@@ -33,14 +33,37 @@ Move fromPan(string s) {
 	return cast (Move) (from | to << 6 | promotion << 12);
 }
 
-enum ttBonus = 10_000, killerBonus = 10;
+enum Bonus : short { tt = 10_000, killer = 10, history = 16_384, badCapture = -32_768 }
 
-/* MoveItem : a move / sorting value*/
+
+/* History */
+struct History {
+	ushort [Square.size][CPiece.size] good, bad;
+
+	void scale(const int r = 2) {
+		foreach (p; CPiece.wpawn .. CPiece.size)
+		foreach (x; Square.a1 .. Square.size) {
+			good[p][x] /= r;
+			bad[p][x] /= r;
+		}
+	}
+
+	void update(const Board board, const Move m, const uint δ, ref ushort [Square.size][CPiece.size] a) {
+		if ((a[board[m.from]][m.to] += δ) > Bonus.history) scale();
+	}
+
+	short value(const CPiece p, const Square to) const {
+		if (good[p][to] + bad[p][to] == 0) return -Bonus.history / 2;
+		else return cast (short) ((good[p][to] * Bonus.history) / (good[p][to] + bad[p][to]) - Bonus.history);
+	}
+}
+
+/* MoveItem : a move / sorting value */
 struct MoveItem {
 	Move move;
 	short value;
 
-	bool isTactical() { return value > killerBonus; }
+	bool isTactical() const { return value > Bonus.killer; }
 }
 
 void insertionSort(MoveItem [] items) {
@@ -55,34 +78,31 @@ void insertionSort(MoveItem [] items) {
 /* Moves : an array of legal moves */
 struct Moves {
 	enum size = 256;
-	MoveItem [size] item;
+	MoveItem [size] item;	
 	size_t index, n;
 	
-	static int dist(const Square x, const Square y) { return abs(rank(x) - rank(y)) + abs(file(x) - file(y)); }
-	static short cdist(const Square x) { with(Square) return cast (short) min(dist(a1, x), dist(a8, x), dist(h1, x), dist(h8, x)); }
-
 	static immutable short [Piece.size] vPiece = [0, 1, 2, 3, 4, 5, 6];
 	static immutable short [Piece.size] vPromotion = [0, 0, 48, 16, 32, 64, 0];
 	static immutable short [Piece.size] vCapture = [0, 256, 512, 768, 1024, 1280, 1536];
-	static immutable short [Square.size] center = allSquares.map!(cdist).array; 
 
 	void clear() { index = n = 0; }
 
 	size_t length() const @property { return n; }
 
-	void generate(bool doQuiet = true)(Board board, const Move ttMove = 0, const Move [2] killer = [0, 0]) {
+	void generate(bool doQuiet = true)(Board board, const ref History h, const Move ttMove = 0, const Move [2] killer = [0, 0]) {
 		index = n = 0;
 		if (board.inCheck) board.generateMoves!true(this); else board.generateMoves!doQuiet(this);
 		foreach(ref i; item[0 .. n]) {
-			if (i.move == ttMove) i.value = ttBonus;
+			if (i.move == ttMove) i.value = Bonus.tt;
 			else {
 				const p = toPiece(board[i.move.from]);
-				const victim = toPiece(board[i.move.to]);
-				if (victim || i.move.promotion) i.value = cast (short) (vCapture[victim] + vPromotion[i.move.promotion] - vPiece[p]);
-				else if (i.move == killer[0]) i.value = killerBonus;
-				else if (i.move == killer[1]) i.value = killerBonus - 1;
-				else if (p == Piece.king) i.value = 1;
-				else i.value = center[i.move.to];
+				const victim = board.isEnpassantCapture(i.move) ? Piece.pawn : toPiece(board[i.move.to]);
+				if (victim || i.move.promotion) { 
+					i.value = cast (short) (vCapture[victim] + vPromotion[i.move.promotion] - vPiece[p]);
+					if (board.see(i.move) < 0) i.value += Bonus.badCapture;
+				} else if (i.move == killer[0]) i.value = Bonus.killer;
+				else if (i.move == killer[1]) i.value = Bonus.killer - 1;
+				else i.value = h.value(board[i.move.from], i.move.to);
 			}
 		}
 		insertionSort(item[0 .. n]);
