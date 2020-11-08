@@ -9,7 +9,7 @@ ifeq ($(TARGET),)
 endif
 
 ifeq ($(DC),)
-	DC = gdc
+	DC = ldc2
 endif
 
 #gdc
@@ -27,7 +27,7 @@ endif
 
 #ldc2
 ifeq ($(DC),ldc2)
-	FFLAGS = -O3 -release -boundscheck=off -singleobj -w -dw  -flto=full -mcpu=$(TARGET) -defaultlib=phobos2-ldc-lto,druntime-ldc-lto
+	FFLAGS = -O3 -release -boundscheck=off -singleobj -w -dw  -flto=full -mcpu=$(TARGET) -defaultlib=phobos2-ldc-lto,druntime-ldc-lto -preview=intpromote
 	DFLAGS = -O0 -g -gc
 	CFLAGS = $(DFLAGS) -cov
 	PFLAGS = -O1 -release -singleobj -mcpu=$(TARGET)
@@ -37,13 +37,24 @@ ifeq ($(DC),ldc2)
 	PGO_FILE = LLVM_PROFILE_FILE=dumb-%p.profraw
 endif
 
+#dmd
+ifeq ($(DC),dmd)
+	FFLAGS = -O -release -inline -boundscheck=off -w -mcpu=native
+	DFLAGS = -w -g -gc -debug -mcpu=native
+	CFLAGS = -O -release -boundscheck=off -cov -w -mcpu=native
+	PFLAGS = -O -release -boundscheck=off -w -mcpu=native
+	PGO_GEN = 
+	PGO_USE = 
+	PGO_MERGE = 
+endif
+
 # executable target
 EXE = dumb
 
 pgo:$(SRC)
 	$(MAKE) clean
 	$(DC) $(FFLAGS) $(PGO_GEN) $(SRC)
-	$(PGO_FILE) ./$(EXE) -b 8
+	$(PGO_FILE) ./$(EXE) -b 14
 	$(PGO_MERGE)
 	$(DC) $(FFLAGS) $(PGO_USE) $(SRC)
 
