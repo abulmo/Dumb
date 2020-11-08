@@ -7,8 +7,7 @@
 module eval;
 
 import board, move, util;
-import std.algorithm, std.range;
-import core.bitop;
+import std.algorithm, std.range, std.stdio;
 
 enum Score {mate = 30_000, low = -29_000, high = 29_000, big = 3_000}
 
@@ -22,19 +21,9 @@ struct Value {
 		return r;
 	}
 
-	Value opBinary(string op)(const int v) const {
-		Value r = {mixin("opening " ~ op ~ " v"), mixin("endgame " ~ op ~ " v")};
-		return r;
-	}
-
 	void opOpAssign(string op)(const Value s) {
 		mixin("opening " ~ op ~ "= s.opening;");
 		mixin("endgame " ~ op ~ "= s.endgame;");
-	}
-
-	void opOpAssign(string op)(const int v) {
-		mixin("opening " ~ op ~ "= v;");
-		mixin("endgame " ~ op ~ "= v;");
 	}
 }
 
@@ -45,90 +34,81 @@ final class Eval {
 		int stage;
 	}
 	static immutable int [Piece.size] stageValue = [0, 0, 3, 3, 5, 10, 0];
+	static immutable Value [Piece.size] material = [{  +0,   +0}, { +31, +100}, {+193, +228}, {+211, +254}, {+262, +456}, {+667, +778}, {  +0,   +0}, ];
+	static immutable Value [Square.size][Piece.size] positional = [
+		// none
+		[],
+		// pawn
+		[{  +0,   +0}, {  +0,   +0}, {  +0,   +0}, {  +0,   +0}, {  +0,   +0}, {  +0,   +0}, {  +0,   +0}, {  +0,   +0}, 
+		 {  +0,   -5}, {  +7,   +6}, {  +1,   +1}, {  -8,   -2}, {  -8,   -2}, {  +1,   +1}, {  +7,   +6}, {  +0,   -5}, 
+		 {  +2,   -8}, {  +2,   -2}, {  -5,  -10}, {  -3,   -6}, {  -3,   -6}, {  -5,  -10}, {  +2,   -2}, {  +2,   -8}, 
+		 {  -1,   -2}, {  -2,   +0}, {  +0,   -7}, {  +7,  -13}, {  +7,  -13}, {  +0,   -7}, {  -2,   +0}, {  -1,   -2}, 
+		 {  +4,  +16}, {  +6,  +12}, {  +7,   +2}, { +21,   -2}, { +21,   -2}, {  +7,   +2}, {  +6,  +12}, {  +4,  +16}, 
+		 { +22,  +44}, { +39,  +52}, { +50,  +42}, { +63,  +33}, { +63,  +33}, { +50,  +42}, { +39,  +52}, { +22,  +44}, 
+		 { +76,  +87}, { +79,  +87}, { +81,  +63}, { +72,  +56}, { +72,  +56}, { +81,  +63}, { +79,  +87}, { +76,  +87}, 
+		 {  +0,   +0}, {  +0,   +0}, {  +0,   +0}, {  +0,   +0}, {  +0,   +0}, {  +0,   +0}, {  +0,   +0}, {  +0,   +0}, ],
+		// knight
+		[{-114,  -50}, { -15,  -33}, { -35,  -21}, { -35,   -1}, { -35,   -1}, { -35,  -21}, { -15,  -33}, {-114,  -50}, 
+		 { -34,  -33}, { -32,   -2}, { -17,   +9}, {  -3,  +10}, {  -3,  +10}, { -17,   +9}, { -32,   -2}, { -34,  -33}, 
+		 { -21,  -21}, {  -1,   +9}, {  +3,  +15}, { +14,  +37}, { +14,  +37}, {  +3,  +15}, {  -1,   +9}, { -21,  -21}, 
+		 {  +0,   -1}, { +28,  +10}, { +30,  +37}, { +12,  +41}, { +12,  +41}, { +30,  +37}, { +28,  +10}, {  +0,   -1}, 
+		 { +19,   -1}, { +13,  +10}, { +44,  +37}, { +34,  +41}, { +34,  +41}, { +44,  +37}, { +13,  +10}, { +19,   -1}, 
+		 {  +5,  -21}, { +30,   +9}, { +40,  +15}, { +62,  +37}, { +62,  +37}, { +40,  +15}, { +30,   +9}, {  +5,  -21}, 
+		 {  -6,  -33}, {  -2,   -2}, { +26,   +9}, { +31,  +10}, { +31,  +10}, { +26,   +9}, {  -2,   -2}, {  -6,  -33}, 
+		 { -73,  -50}, { -34,  -33}, { +17,  -21}, { +14,   -1}, { +14,   -1}, { +17,  -21}, { -34,  -33}, { -73,  -50}, ],
+		// bishop
+		[{ -28,  -23}, {  +0,  -17}, { -13,  -18}, {  -4,   -4}, {  -4,   -4}, { -13,  -18}, {  +0,  -17}, { -28,  -23}, 
+		 {  +0,  -17}, {  +0,   -4}, { +13,   +5}, {  -2,   +9}, {  -2,   +9}, { +13,   +5}, {  +0,   -4}, {  +0,  -17}, 
+		 { -13,  -18}, { +13,   +5}, {  +5,  +14}, { +10,  +20}, { +10,  +20}, {  +5,  +14}, { +13,   +5}, { -13,  -18}, 
+		 {  -4,   -4}, {  -2,   +9}, { +10,  +20}, { +28,  +23}, { +28,  +23}, { +10,  +20}, {  -2,   +9}, {  -4,   -4}, 
+		 {  -4,   -4}, {  -2,   +9}, { +10,  +20}, { +28,  +23}, { +28,  +23}, { +10,  +20}, {  -2,   +9}, {  -4,   -4}, 
+		 { -13,  -18}, { +13,   +5}, {  +5,  +14}, { +10,  +20}, { +10,  +20}, {  +5,  +14}, { +13,   +5}, { -13,  -18}, 
+		 {  +0,  -17}, {  +0,   -4}, { +13,   +5}, {  -2,   +9}, {  -2,   +9}, { +13,   +5}, {  +0,   -4}, {  +0,  -17}, 
+		 { -28,  -23}, {  +0,  -17}, { -13,  -18}, {  -4,   -4}, {  -4,   -4}, { -13,  -18}, {  +0,  -17}, { -28,  -23}, ],
+		// rook
+		[{ -30,   -7}, { -25,   -1}, { -14,   +0}, {  -8,   -1}, {  -8,   -1}, { -14,   +0}, { -25,   -1}, { -30,   -7}, 
+		 { -64,   -1}, { -46,   +0}, { -32,   +3}, { -36,   +0}, { -36,   +0}, { -32,   +3}, { -46,   +0}, { -64,   -1}, 
+		 { -50,   +0}, { -34,   +3}, { -32,   +0}, { -33,   +5}, { -33,   +5}, { -32,   +0}, { -34,   +3}, { -50,   +0}, 
+		 { -19,   -1}, { -11,   +0}, { -11,   +5}, { -10,   +5}, { -10,   +5}, { -11,   +5}, { -11,   +0}, { -19,   -1}, 
+		 {  +4,   -1}, {  +9,   +0}, { +25,   +5}, { +23,   +5}, { +23,   +5}, { +25,   +5}, {  +9,   +0}, {  +4,   -1}, 
+		 { +20,   +0}, { +25,   +3}, { +45,   +0}, { +51,   +5}, { +51,   +5}, { +45,   +0}, { +25,   +3}, { +20,   +0}, 
+		 { +36,   -1}, { +23,   +0}, { +45,   +3}, { +51,   +0}, { +51,   +0}, { +45,   +3}, { +23,   +0}, { +36,   -1}, 
+		 { +36,   -7}, { +31,   -1}, { +26,   +0}, { +31,   -1}, { +31,   -1}, { +26,   +0}, { +31,   -1}, { +36,   -7}, ],
+		// queen
+		[{ -31,   +0}, { -32,   -3}, { -35,   -4}, { -14,   -4}, { -14,   -4}, { -35,   -4}, { -32,   -3}, { -31,   +0}, 
+		 { -22,   -3}, { -20,   -8}, {  -8,   -9}, { -13,   -1}, { -13,   -1}, {  -8,   -9}, { -20,   -8}, { -22,   -3}, 
+		 { -14,   -4}, { -11,   -9}, {  -5,   +8}, { -13,  +10}, { -13,  +10}, {  -5,   +8}, { -11,   -9}, { -14,   -4}, 
+		 { -10,   -4}, {  +7,   -1}, {  -2,  +10}, {  -5,  +23}, {  -5,  +23}, {  -2,  +10}, {  +7,   -1}, { -10,   -4}, 
+		 {  +1,   -4}, {  +4,   -1}, {  +6,  +10}, {  +5,  +23}, {  +5,  +23}, {  +6,  +10}, {  +4,   -1}, {  +1,   -4}, 
+		 { +15,   -4}, { +17,   -9}, { +24,   +8}, { +36,  +10}, { +36,  +10}, { +24,   +8}, { +17,   -9}, { +15,   -4}, 
+		 {  +8,   -3}, { -12,   -8}, { +23,   -9}, { +24,   -1}, { +24,   -1}, { +23,   -9}, { -12,   -8}, {  +8,   -3}, 
+		 { +18,   +0}, { +15,   -3}, { +21,   -4}, { +23,   -4}, { +23,   -4}, { +21,   -4}, { +15,   -3}, { +18,   +0}, ],
+		// king
+		[{ -23,  -23}, {  -4,   -7}, { -19,   -3}, { -81,  -15}, { -27,  -15}, { -74,   -3}, {  -7,   -7}, { -16,  -23}, 
+		 { -16,   -7}, { -26,   -2}, { -40,   +6}, { -59,   +6}, { -66,   +6}, { -44,   +6}, {  -9,   -2}, {  -4,   -7}, 
+		 {  -2,   -3}, { -30,   +6}, { -32,  +12}, { -68,  +15}, { -36,  +15}, { -43,  +12}, { -40,   +6}, { -43,   -3}, 
+		 { -32,  -15}, { +21,   +6}, {  +1,  +15}, {  -1,  +21}, {  -6,  +21}, {  -1,  +15}, {  -6,   +6}, { -50,  -15}, 
+		 { +24,  -15}, {  -1,   +6}, { +26,  +15}, {  -9,  +21}, { +19,  +21}, { +47,  +15}, { +19,   +6}, {  +6,  -15}, 
+		 {  -2,   -3}, {+186,   +6}, { +25,  +12}, { -19,  +15}, { +16,  +15}, { +35,  +12}, { +36,   +6}, { +10,   -3}, 
+		 {  +4,   -7}, { +61,   -2}, { +25,   +6}, { -15,   +6}, { +11,   +6}, { +63,   +6}, { +39,   -2}, {+149,   -7}, 
+		 { +20,  -23}, { +16,   -7}, { +19,   -3}, { +18,  -15}, { +17,  -15}, { +22,   -3}, { +25,   -7}, { +12,  -23}, ],
+	];
+	static immutable Value tempo = {  -2,   +2};		
 	Stack [Limits.ply.max + 1] stack;
-	Value [Square.size][Piece.size] weight;
-	Value tempo;
-	enum Adjustment {none, mean, min};
 	int ply;
 
-	static double attraction(const Square x, const Square y) {
-		const int r = rank(x) - rank(y);
-		const int f = file(x) - file(y);
-		const int d = (r * r + f * f);
-		return d == 0 ? 2.0 : 1.0 / d;
-	}
-
-	static void buildPositional(string phase)(ref Value [Square.size] w, const Square [] y, const double a, const Adjustment r) {
-		double m = 0.0, k;	
-		double [Square.size] p;
- 	
-		foreach (s; allSquares) {
-			Square x = cast (Square) s;
-			k = attraction(x, y[0]); foreach (i; 1 .. y.length) k = max(attraction(x, y[i]), k); p[x] = a * k;
-		}
-
-		if (r == Adjustment.mean) {
-			foreach (x; allSquares) m += p[x]; m /= Square.size;
-		}
-
-		foreach(x; allSquares) mixin("w[x]." ~ phase) += cast (int) (p[x] - m);
-
-		if (r == Adjustment.min) {
-			int d = int.max; foreach (x; Square.a2 .. Square.a8) d = min(d, mixin("w[x]." ~ phase));
-			foreach (x; Square.a2 .. Square.a8) mixin("w[x]." ~ phase) -= d;
-		}
-	}
-
-	static void addBonus(string phase)(ref Value [Square.size] w, const Square [] squares, const int bonus) { 
-		foreach (x; squares) mixin("w[x]."~phase) += bonus;
-	}
-
 	void remove(const Piece p, const Color c, const Square x) {
-		stack[ply].value[c] -= weight[p][forward(x, c)];
+		stack[ply].value[c] -= material[p] + positional[p][forward(x, c)];
 		stack[ply].stage -= stageValue[p];
 	}
 
 	void set(const Piece p, const Color c, const Square x) {
-		stack[ply].value[c] += weight[p][forward(x, c)];
+		stack[ply].value[c] += material[p] + positional[p][forward(x, c)];
 		stack[ply].stage += stageValue[p];
 	}
 
 	void deplace(const Piece p, const Color c, const Square from, const Square to) {
-		stack[ply].value[c] += weight[p][forward(to, c)] - weight[p][forward(from, c)];
-	}
-
-	this() {
-		immutable int [] w = [
-			+2, +347, +96, +15, +108, +5, +47, -42, -41, -46, -9, -31, +25, +100, +382, +404, +548, +1238, +17,
-			+128, +47, +19, +46, +11, +146, +356, +381, +685, +1163, -7,
-		];
-		size_t i;
-
-		with (Square) {
-			buildPositional!"opening"(weight[Piece.pawn],   [d4, e4],                 w[i++], Adjustment.none);
-			buildPositional!"opening"(weight[Piece.pawn],   [b8, c8, d8, e8, f8, g8], w[i++], Adjustment.min);
-			buildPositional!"opening"(weight[Piece.knight], [c6, d6, e6, f6],         w[i++], Adjustment.mean);
-			buildPositional!"opening"(weight[Piece.bishop], [c3, f3, c6, f6],         w[i++], Adjustment.mean);
-			buildPositional!"opening"(weight[Piece.rook],   [b7, c7, d7, e7, f7, g7], w[i++], Adjustment.mean);
-			buildPositional!"opening"(weight[Piece.queen],  [d4, e4, d5, e5],         w[i++], Adjustment.mean);
-			buildPositional!"opening"(weight[Piece.king],   [b1, g1],                 w[i++], Adjustment.mean);
-			addBonus!"opening"(weight[Piece.pawn],   [d2, e2], w[i++]) ;
-			addBonus!"opening"(weight[Piece.knight], [b1, g1], w[i++]) ;
-			addBonus!"opening"(weight[Piece.bishop], [c1, f1], w[i++]) ;
-			addBonus!"opening"(weight[Piece.rook],   [a1, h1], w[i++]) ;
-			weight[Piece.queen][d1].opening += w[i++];
-			weight[ Piece.king][e1].opening += w[i++];
-			foreach (p;  Piece.pawn .. Piece.king) addBonus!"opening"(weight[p], allSquares, w[i++]);
-			tempo.opening = w[i++];
-
-			buildPositional!"endgame"(weight[Piece.pawn],   [b8, c8, d8, e8, f8, g8], w[i++], Adjustment.min);
-			buildPositional!"endgame"(weight[Piece.knight], [d4, e4, d5, e5],         w[i++], Adjustment.mean);
-			buildPositional!"endgame"(weight[Piece.bishop], [c3, f3, c6, f6],         w[i++], Adjustment.mean);
-			buildPositional!"endgame"(weight[Piece.queen],  [d4, e4, d5, e5],         w[i++], Adjustment.mean);
-			buildPositional!"endgame"(weight[Piece.king],   [d4, e4, d5, e5],         w[i++], Adjustment.mean);
-			foreach (p;  Piece.pawn .. Piece.king) addBonus!"endgame"(weight[p], allSquares, w[i++]);
-			tempo.endgame = w[i++];
-		}
+		stack[ply].value[c] += positional[p][forward(to, c)] - positional[p][forward(from, c)];
 	}
 
 	void set(const Board board) {
@@ -141,11 +121,10 @@ final class Eval {
 		foreach(c; Color.white .. Color.size) {
 			foreach(p; Piece.pawn .. Piece.size) {
 				ulong b = board.color[c] & board.piece[p];
-				const n = popcnt(b);
-				s.stage += stageValue[p] * n;
 				while (b) {
 					const Square x = popSquare(b);
-					s.value[c] += weight[p][forward(x, c)];
+					s.value[c] += material[p] + positional[p][forward(x, c)];
+					s.stage += stageValue[p];
 				}
 			}
 		}
