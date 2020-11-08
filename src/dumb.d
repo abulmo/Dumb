@@ -1,7 +1,7 @@
 /*
  * File dumb.d
  * Universal Chess Interface.
- * © 2017-2019 Richard Delorme
+ * © 2017-2020 Richard Delorme
  */
 
 module dumb;
@@ -14,8 +14,7 @@ void eventLoop(shared Event e) { e.loop(); }
 /* Universal Chess Interface. */
 class Uci {
 	struct Time {
-		double remaining, increment;
-		void clear() { remaining = increment = 0.0;	}
+		double remaining = 0.0, increment = 0.0;
 	}
 	Search search;
 	Board board;
@@ -32,16 +31,6 @@ class Uci {
 		search.board = board = new Board;
 		ucinewgame();
 		canPonder = false;
-	}
-
-	void send(T...) (T args) const @trusted {
-		writeln(args);
-		stdout.flush();
-	}
-
-	void sendf(T...) (T args) const @trusted {
-		writefln(args);
-		stdout.flush();
 	}
 
 	double setTime() const {
@@ -61,11 +50,11 @@ class Uci {
 	}
 
 	void uci() const {
-		send("id name dumb 1.5");
-		send("id author Richard Delorme");
-		send("option name Ponder type check default false");
-		send("option name Hash type spin default 64 min 1 max 65536");
-		send("uciok");
+		writeln("id name dumb 1.5");
+		writeln("id author Richard Delorme");
+		writeln("option name Ponder type check default false");
+		writeln("option name Hash type spin default 64 min 1 max 65536");
+		writeln("uciok");
 	}
 
 	void setoption(string line) {
@@ -93,8 +82,8 @@ class Uci {
 	}
 
 	void bestmove() {
-		if (search.hint != 0 && canPonder) send("bestmove ", search.bestMove.toPan(), " ponder ", search.hint.toPan());
-		else send("bestmove ", search.bestMove.toPan());
+		if (search.hint != 0 && canPonder) writeln("bestmove ", search.bestMove.toPan(), " ponder ", search.hint.toPan());
+		else writeln("bestmove ", search.bestMove.toPan());
 	}
 
 	void bench(const int depth) {
@@ -129,7 +118,6 @@ class Uci {
 		double t = 0.0;
 
 		moves.clear();
-		foreach (c ; Color.white .. Color.size) time[c].clear();
 
 		foreach (fen; fens) {
 			board.set(fen);
@@ -140,7 +128,7 @@ class Uci {
 			t += search.timer.time;
 		}
 
-		send("bench: ", n, " nodes in ", t, " s, ", cast (int) (n / t), " nps.");
+		writeln("bench: ", n, " nodes in ", t, " s, ", cast (int) (n / t), " nps.");
 	}
 
 	ulong perft(bool div = false)(const int depth) {
@@ -159,16 +147,16 @@ class Uci {
 			board.update(m);
 				if (depth == 1) count = 1; else count = perft(depth - 1);
 				total += count;
-				static if (div) sendf("%5s %16d", m.toPan(), count);
+				static if (div) writefln("%5s %16d", m.toPan(), count);
 			board.restore(m);
 		}
 
-		static if (div) sendf("perft %d: %d leaves const %.3fs (%.0f leaves/s)", depth, total, t.time(), total / t.time());
+		static if (div) writefln("perft %d: %d leaves const %.3fs (%.0f leaves/s)", depth, total, t.time(), total / t.time());
 
 		return total;
 	}
 
-	void test() @trusted {
+	void test() {
 		struct TestBoard {
 			string comments, fen;
 			int depth;
@@ -196,24 +184,21 @@ class Uci {
 			{"19. Double check", "8/8/2k5/5q2/5n2/8/5K2/8 b - - 0 1", 4, 23_527},
 		];
 
-		send("Testing the move generator");
+		writeln("Testing the move generator");
 		foreach (test; tests) {
 			write("Test ", test.comments, " ", test.fen); stdout.flush();
 			board.set(test.fen);
-			if (perft(test.depth) == test.result) send(" passed"); else send(" FAILED !");
+			if (perft(test.depth) == test.result) writeln(" passed"); else writeln(" FAILED !");
 		}
 	}
 
 	void go(string line) {
-		Option option;
-		bool isInfinite = false;
+		Option option = { {double.max}, {ulong.max}, {Limits.ply.max}, false };
+		bool isInfinite = isPondering = false;
 		string [] words = line.split();
 
 		moves.clear();
-		option.depth.max = Limits.ply.max;
-		option.nodes.max = ulong.max;
-		foreach (c ; Color.white .. Color.size) time[c].clear();
-		isPondering = false;
+		foreach (c ; Color.white .. Color.size) time[c] = Time.init;
 		foreach (i, ref w ; words) {
 			if (w == "searchmoves") foreach(m ; words[i..$]) moves.push(fromPan(m));
 			else if (w == "ponder") isPondering = true;
@@ -235,14 +220,14 @@ class Uci {
 		if (!isInfinite && !isPondering) bestmove();
 	}
 
-	void loop() @trusted {
+	void loop() {
 		spawn(&eventLoop, event);
 		while (true) {
 			auto line = event.wait();
 			if (line == "" || line[0] == '#') continue;
 			else if (findSkip(line, "ucinewgame")) ucinewgame();
 			else if (findSkip(line, "uci")) uci();
-			else if (findSkip(line, "isready")) send("readyok");
+			else if (findSkip(line, "isready")) writeln("readyok");
 			else if (findSkip(line, "setoption")) setoption(line);
 			else if (findSkip(line, "position")) position(line);
 			else if (findSkip(line, "go")) go(line);
@@ -252,16 +237,19 @@ class Uci {
 			else if (findSkip(line, "register")) {}
 			else if (findSkip(line, "perft ")) perft!true(to!int(line));
 			else if (findSkip(line, "bench ")) bench(to!int(line));
-			else send("error unknown command: '", line, "'");
+			else writeln("error unknown command: '", line, "'");
 		}
 	}
 }
 
 /* main function */
 void main(string [] args) {
+	stdout.setvbuf(4096, _IOLBF);
 	Uci uci = new Uci;
-	if (args.length > 1 && (args[1] == "--bench" || args[1] == "-b")) uci.bench(to!int(args[2]));
-	else if (args.length > 1 && (args[1] == "--test" || args[1] == "-t")) uci.test();
+	if (args.length == 3 && (args[1] == "--bench" || args[1] == "-b")) uci.bench(to!int(args[2]));
+	else if (args.length == 2 && (args[1] == "--test" || args[1] == "-t")) uci.test();
+	else if (args.length == 3 && (args[1] == "--perft" || args[1] == "-p")) uci.perft!true(to!int(args[2]));
+	else if (args.length > 1) stderr.writeln(args[0], " [--bench|-b <depth>] [--test|-t] [--perft|-p <depth>]");
 	else uci.loop();
 }
 
