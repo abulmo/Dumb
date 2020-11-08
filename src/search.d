@@ -24,8 +24,7 @@ struct Entry {
 
 	Bound bound() const @property { return cast (Bound) (info & 3);	}
 
-	int score(const int ply) const { return perft 
-value < Score.low ? value + ply : (value > Score.high ? value - ply : value); }
+	int score(const int ply) const { return value < Score.low ? value + ply : (value > Score.high ? value - ply : value); }
 
 	void set(const Key k, const int d, const int ply, const Bound b, const int v, const Move m) {
 		code = k.code;
