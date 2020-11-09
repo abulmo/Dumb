@@ -8,15 +8,15 @@ Dumb is based on the following algorithms:
  - simple quiescence search with see pruning (new in 1.5)
  - simple 4-bucket hash table (no ageing)
  - simple evaluation function with knowledge limited to material, positional and tempo (no pawn structure, mobility, king safety, imbalance, trapped pieces, ...) tuned to probably suboptimal coefficients.
- - simple (insertion) move sorting: hash move + mvvlva ordered capture/promotions + killer moves + quiet moves (no history)
- - null move pruning, razoring and eval pruning (no lmr, lmp, probcut, ...)
+ - simple (insertion) move sorting: hash move + mvvlva ordered good capture/promotions + killer moves + quiet moves (with history) + bad captures
+ - null move pruning, razoring and eval pruning, LMR (no LMP, probcut, ...)
  - checking move extension (no singular move extension)
  - can do perft with bulk count and divide
  - include a basic test for the move generator and a bench(mark) to estimate search speed.
 
 Strength:
 version 1.5
- expected about +50 elo vs 1.4
+ expected about +200 elo vs 1.4
 version 1.4
  - CCRL rating 40/2: 2359
  - CGET rating 40/4: 2155
