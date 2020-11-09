@@ -38,7 +38,7 @@ class Uci {
 		double t = time[p].remaining;
 
 		if (t > 0) {
-			const int todo = movesToGo > 0 ? todo = movesToGo : 40;
+			const int todo = movesToGo > 0 ? movesToGo : 40;
 			t += time[p].increment * todo;
 			t = max(t - 1.0, 0.95 * t) / todo;
 		} else {
