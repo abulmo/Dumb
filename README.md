@@ -15,11 +15,14 @@ Dumb is based on the following algorithms:
  - include a basic test for the move generator and a bench(mark) to estimate search speed.
 
 Strength:
+
 version 1.5
  expected about +200 elo vs 1.4
+
 version 1.4
  - CCRL rating 40/2: 2359
  - CGET rating 40/4: 2155
+
 version 1.3:
  - CCRL rating 40/2: 2272
  - CGET rating 40/4: 2087
