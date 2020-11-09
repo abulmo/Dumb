@@ -244,7 +244,7 @@ class Uci {
 
 /* main function */
 void main(string [] args) {
-	stdout.setvbuf(4096, _IOLBF);
+	version (Windows) stdout.setvbuf(0, _IONBF); else stdout.setvbuf(4096, _IOLBF);
 	Uci uci = new Uci;
 	if (args.length == 3 && (args[1] == "--bench" || args[1] == "-b")) uci.bench(to!int(args[2]));
 	else if (args.length == 2 && (args[1] == "--test" || args[1] == "-t")) uci.test();
