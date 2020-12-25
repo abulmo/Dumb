@@ -12,24 +12,26 @@ import std.stdio, std.algorithm, std.ascii, std.format, std.math, std.range, std
 /* Move */
 alias Move = ushort;
 
-Square from(const Move move) @property { return cast (Square) (move & 63); }
+Square from(const Move m) @property { return cast (Square) (m & 63); }
 
-Square to(const Move move) @property { return cast (Square) ((move >> 6) & 63); }
+Square to(const Move m) @property { return cast (Square) ((m >> 6) & 63); }
 
-Piece promotion(const Move move) @property { return cast (Piece) (move >> 12); }
+Piece promotion(const Move m) @property { return cast (Piece) (m >> 12); }
 
-string toPan(const Move move) {
-	if (move.promotion) return format("%s%s%c", move.from, move.to, toChar(move.promotion));
-	else if (move) return format("%s%s", move.from, move.to);
+string toPan(const Move m, const Board b) {
+	if (m.promotion) return format("%s%s%c", m.from, m.to, toChar(m.promotion));
+	else if (b.isCastling(m) && !b.chess960) return format("%s%s", m.from, m.from > m.to ? m.from.shift(-2) : m.from.shift(2));
+	else if (m) return format("%s%s", m.from, m.to);
 	else return "0000";
 }
 
-Move fromPan(string s) {
+Move fromPan(string s, const Board b) {
 	if (s.length < 4) return 0;
 	Piece promotion;
 	Square from = toSquare(s[0..2]);
 	Square to = toSquare(s[2..4]);
 	if (s.length > 4) promotion = toPiece(s[4]);
+	if (!b.chess960 && b[from].toPiece == Piece.king) to = cast (Square) (to == from + 2 ? from + 3 : to == from - 2 ? from - 4 : to);
 	return cast (Move) (from | to << 6 | promotion << 12);
 }
 
@@ -156,9 +158,9 @@ struct Line {
 
 	void set(const Move m, const ref Line l) { clear(); push(m); push(l); }
 
-	string toString() const {
+	string toString(const Board b) const {
 		string s;
-		foreach (m; move[0 .. n]) s ~= m.toPan() ~ " ";
+		foreach (m; move[0 .. n]) s ~= m.toPan(b) ~ " ";
 		return s;
 	}
 }
