@@ -111,22 +111,18 @@ final class Eval {
 		stack[ply].value[c] += positional[p][forward(to, c)] - positional[p][forward(from, c)];
 	}
 
-	void set(const Board board) {
+	void set(const Board b) {
 		Stack *s = &stack[0];
 
 		ply = 0;
 		s.value[Color.white] = s.value[Color.black] = Value.init;
 		s.stage = 0;
 
-		foreach(c; Color.white .. Color.size) {
-			foreach(p; Piece.pawn .. Piece.size) {
-				ulong b = board.color[c] & board.piece[p];
-				while (b) {
-					const Square x = popSquare(b);
-					s.value[c] += material[p] + positional[p][forward(x, c)];
-					s.stage += stageValue[p];
-				}
-			}
+		foreach (x; allSquares) {
+			const Piece p = toPiece(b[x]);
+			const Color c = toColor(b[x]);
+			s.value[c] += material[p] + positional[p][forward(x, c)];
+			s.stage += stageValue[p];
 		}
 	}
 
@@ -139,19 +135,20 @@ final class Eval {
 		stack[ply + 1] = stack[ply];
 		++ply;
 
-		deplace(p, player, m.from, m.to);
-		if (v) remove(v, enemy, m.to);
-		if (p == Piece.pawn) {
-			if (m.promotion) {
-				remove(p, player, m.to);
-				set(m.promotion, player, m.to);
-			} else if (b.stack[b.ply - 1].enpassant == m.to) {
-				remove(Piece.pawn, enemy, m.to.shift);
+		if (b.stack[b.ply].castled) {
+			deplace(Piece.king, player, m.from, b.kingCastleTo[m.side][player]);
+			deplace(Piece.rook, player, m.to, b.rookCastleTo[m.side][player]);
+		} else {
+			deplace(p, player, m.from, m.to);
+			if (v) remove(v, enemy, m.to);
+			if (p == Piece.pawn) {
+				if (m.promotion) {
+					remove(p, player, m.to);
+					set(m.promotion, player, m.to);
+				} else if (b.stack[b.ply - 1].enpassant == m.to) {
+					remove(Piece.pawn, enemy, m.to.shift);
+				}
 			}
-		}
-		if (p == Piece.king) {
-			if (m.to == m.from + 2) deplace(Piece.rook, player, m.from.shift(+3), m.from.shift(+1));
-			if (m.to == m.from - 2) deplace(Piece.rook, player, m.from.shift(-4), m.from.shift(-1));
 		}
 	}
 
