@@ -30,7 +30,7 @@ ifeq ($(DC),ldc2)
 	FFLAGS = -O3 -release -boundscheck=off -singleobj -w -dw  -flto=full -mcpu=$(TARGET) -defaultlib=phobos2-ldc-lto,druntime-ldc-lto -preview=intpromote
 	DFLAGS = -O0 -g -gc
 	CFLAGS = $(DFLAGS) -cov
-	PFLAGS = -O1 -release -singleobj -mcpu=$(TARGET)
+	PFLAGS = -O1 -release -boundscheck=off -flto=full -singleobj -mcpu=$(TARGET)
 	PGO_GEN = -fprofile-generate
 	PGO_USE = -fprofile-use=dumb.profdata
 	PGO_MERGE = ldc-profdata merge -output=dumb.profdata dumb-*.profraw
