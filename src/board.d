@@ -6,7 +6,7 @@
 
 module board;
 import move, util;
-import std.ascii, std.conv, std.format, std.stdio, std.string, std.uni;
+import std.ascii, std.conv, std.format, std.stdio, std.string;
 import std.algorithm, std.math, std.random, std.range;
 import core.bitop;
 
@@ -84,11 +84,16 @@ immutable ulong [] rankMask = [ 0x00000000000000ff, 0x000000000000ff00, 0x000000
 immutable ulong [] fileMask = [ 0x0101010101010101, 0x0202020202020202, 0x0404040404040404, 0x0808080808080808, 0x1010101010101010, 0x2020202020202020, 0x4040404040404040, 0x8080808080808080 ];
 
 /* Castling */
-enum Castling : ubyte {none = 0, K = 1, Q = 2, k = 4, q = 8, size = 16}
+enum Castling { kingSide, queenSide };
 
-int toCastling(const char c) {
-	size_t i = indexOf("KQkq", c);
-	return i == -1 ? 0 : 1 << i;
+Castling side(const Move m) { return m.to > m.from ? Castling.kingSide : Castling.queenSide; }
+
+ulong toCastling(const char c) {
+	with (Square) {
+		static immutable Square  [] rooks = [h1, a1, h8, a8, a1, b1, c1, d1, e1, f1, g1, h1, a8, b8, c8, d8, e8, f8, g8, h8];
+		size_t i = indexOf("KQkqABCDEFGHabcdefgh", c);
+		return i == -1 ? 0 : 1UL << rooks[i];
+	}
 }
 
 /* Zobrist key */
@@ -96,7 +101,7 @@ struct Key {
 	ulong code;
 
 	static immutable ulong [Square.size][CPiece.size] square;
-	static immutable ulong [Castling.size] castling;
+	static immutable ulong [Square.size] castling;
 	static immutable ulong [Square.none + 1] enpassant;
 	static immutable ulong [Color.size] color;
 	static immutable ulong play;
@@ -106,7 +111,8 @@ struct Key {
 		r.seed(19_937);
 		foreach (p; CPiece.wpawn .. CPiece.size)
 		foreach (x; Square.a1 .. Square.size) square[p][x] = uniform(ulong.min, ulong.max, r);
-		foreach (c; Castling.K .. Castling.size) castling[c] = uniform(ulong.min, ulong.max, r);
+		foreach (x; Square.a1 .. Square.a2)   castling[x] = uniform(ulong.min, ulong.max, r);
+		foreach (x; Square.a8 .. Square.size) castling[x] = uniform(ulong.min, ulong.max, r);
 		foreach (x; Square.a3 .. Square.a4) enpassant[x] = uniform(ulong.min, ulong.max, r);
 		foreach (x; Square.a6 .. Square.a7) enpassant[x] = uniform(ulong.min, ulong.max, r);
 		foreach (c; Color.white .. Color.size) color[c] = uniform(ulong.min, ulong.max, r);
@@ -118,7 +124,7 @@ struct Key {
 		code = color[board.player];
 		foreach (Square x; Square.a1 .. Square.size) code ^= square[board[x]][x];
 		code ^= enpassant[s.enpassant];
-		code ^= castling[s.castling];
+		ulong rooks = s.castling; while (rooks) code ^= castling[popSquare(rooks)];
 	}
 
 	void update(const Board board, const Move move) {
@@ -127,24 +133,30 @@ struct Key {
 		const Color enemy = opponent(player);
 		const CPiece p = board[move.from];
 		const Board.Stack *s = &board.stack[board.ply];
+		ulong rooks = 0;
 
 		code = s.key.code;
 		code ^= play;
 		if (move != 0) {
-			code ^= square[p][move.from] ^ square[p][move.to];
-			code ^= square[board[move.to]][move.to];
-			if (toPiece(p) == Piece.pawn) {
-				if (move.promotion) code ^= square[p][move.to] ^ square[toCPiece(move.promotion, player)][move.to];
-				else if (s.enpassant == move.to) code ^= square[toCPiece(Piece.pawn, enemy)][move.to.shift];
-				else if (abs(move.to - move.from) == 16 && (board.mask[move.to].enpassant & (board.color[enemy] & board.piece[Piece.pawn]))) x = move.to.shift;
-			} else if (toPiece(p) == Piece.king) {
-				CPiece r = toCPiece(Piece.rook, board.player);
-				if (move.to == move.from + 2) code ^= square[r][move.from + 3] ^ square[r][move.from + 1];
-				else if (move.to == move.from - 2) code ^= square[r][move.from - 4] ^ square[r][move.from - 1];
+			if (board.isCastling(move)) {
+				CPiece r = toCPiece(Piece.rook, player);
+				code ^= square[p][move.from] ^ square[p][board.kingCastleTo[move.side][player]];
+				code ^= square[r][move.to]   ^ square[r][board.rookCastleTo[move.side][player]];
+				rooks = board.piece[Piece.rook] & board.color[player];
+			} else {
+				code ^= square[p][move.from] ^ square[p][move.to];
+				code ^= square[board[move.to]][move.to];
+				rooks = ((1UL << move.from) | (1UL << move.to)) & board.piece[Piece.rook];
+				if (toPiece(p) == Piece.pawn) {
+					if (move.promotion) code ^= square[p][move.to] ^ square[toCPiece(move.promotion, player)][move.to];
+					else if (s.enpassant == move.to) code ^= square[toCPiece(Piece.pawn, enemy)][move.to.shift];
+					else if (abs(move.to - move.from) == 16 && (board.mask[move.to].enpassant & (board.color[enemy] & board.piece[Piece.pawn]))) x = move.to.shift;				
+				} else if (toPiece(p) == Piece.king) rooks |= board.piece[Piece.rook] & board.color[player];
 			}
-			code ^= enpassant[s.enpassant] ^ enpassant[x];
-			code ^= castling[s.castling] ^ castling[s.castling & board.mask[move.from].castling & board.mask[move.to].castling];
+			rooks &= s.castling;
+			while (rooks) code ^= castling[popSquare(rooks)];
 		}
+		code ^= enpassant[s.enpassant] ^ enpassant[x];
 	}
 }
 
@@ -163,20 +175,20 @@ struct Mask {
 final class Board {
 	static immutable Mask [Square.size] mask;
 	static immutable ubyte [512] ranks;
-	static immutable Castling [Color.size] kingside = [Castling.K, Castling.k];
-	static immutable Castling [Color.size] queenside = [Castling.Q, Castling.q];
 	static immutable int [Piece.size] seeValue = [0, 1, 3, 3, 5, 9, 300];
 	static immutable ulong [Color.size] promotionRank = [rankMask[7], rankMask[0]];
 	static immutable int [Color.size] pushTable = [8, -8];
+	static immutable Square [2][Color.size] kingCastleTo = [[Square.g1, Square.g8], [Square.c1, Square.c8]], rookCastleTo = [[Square.f1, Square.f8], [Square.d1, Square.d8]];
 
 	struct Stack {
 		ulong pins;
 		ulong checkers;
+		ulong castling;
 		Key key;
 		Square enpassant = Square.none;
 		Piece victim;
 		byte fifty;
-		Castling castling;
+		bool castled;
 	}
 	ulong [Piece.size] piece;
 	ulong [Color.size] color;
@@ -185,6 +197,7 @@ final class Board {
 	Square [Color.size] xKing;
 	Color player;
 	int ply, plyOffset;
+	bool chess960;
 
 	shared static this() {
 		int b, y, z;
@@ -230,11 +243,7 @@ final class Board {
 			}
 			foreach (dir; knightDir) mask[x].knight |= bit(f + dir[0], r + dir[1]);
 			foreach (dir; kingDir) mask[x].king   |= bit(f + dir[0], r + dir[1]);
-
-			mask[x].castling = 15;
 		}
-
-		foreach (k; 0 .. 6) mask[castlingX[k]].castling = castling[k];
 
 		foreach (o; 0 .. 64) {
 			foreach (k; 0 .. 8) {
@@ -254,11 +263,23 @@ final class Board {
 		}
 	}
 
-	bool canCastle(const Castling side, const int k, const int r, const ulong occupancy) const {
+	bool canCastle(const Square kingFrom, const Square rookFrom, const ulong occupancy) const {
 		const Color enemy = opponent(player);
-		if ((stack[ply].castling & side) == 0 || (occupancy & mask[k].between[r]) != 0) return false;
-		foreach (x ; (k > r ? k - 2 : k + 1) .. (k > r ? k : k + 3))  if (isSquareAttacked(cast (Square) x, enemy, occupancy)) return false;
+		const Square kingTo = kingFrom < rookFrom ? kingCastleTo[Castling.kingSide][player] : kingCastleTo[Castling.queenSide][player];
+		const Square rookTo = kingFrom < rookFrom ? rookCastleTo[Castling.kingSide][player] : rookCastleTo[Castling.queenSide][player];
+		ulong kingPath = mask[kingFrom].between[kingTo] | (1UL << kingTo);
+		ulong rookPath = mask[rookFrom].between[rookTo] | (1UL << rookTo);
+
+		if ((stack[ply].castling & (1UL << rookFrom)) == 0) return false;
+		if (((kingPath | rookPath) & occupancy & ~(1UL << rookFrom) & ~(1UL << kingFrom)) != 0)  return false;
+		while (kingPath) if (isSquareAttacked(popSquare(kingPath), enemy, occupancy ^ (1UL << rookFrom))) return false;
+
 		return true;
+	}
+
+	bool isCastling(const Move m) const {
+		const CPiece f = cpiece[m.from], t = cpiece[m.to];
+		return f.toColor == t.toColor && f.toPiece == Piece.king && t.toPiece == Piece.rook;
 	}
 
 	static ulong attack(const ulong occupancy, const Square x, const ulong m)  {
@@ -320,12 +341,12 @@ final class Board {
 	}
 
 	void deplace(const int from, const int to, const Piece p) {
-		const ulong M = mask[from].bit | mask[to].bit;
+		const ulong M = mask[from].bit ^ mask[to].bit;
 		piece[Piece.none] ^= M;
 		piece[p] ^= M;
 		color[player] ^= M;
-		cpiece[to] = cpiece[from];
 		cpiece[from] = CPiece.none;
+		cpiece[to] = toCPiece(p, player);
 	}
 
 	void capture(const Piece victim, const Square x, const Color enemy) {
@@ -333,6 +354,17 @@ final class Board {
 		piece[Piece.none] ^= M;
 		piece[victim] ^= M;
 		color[enemy] ^= M;
+	}
+
+	void castle(const int kingFrom, const int kingTo, const int rookFrom, const int rookTo) {
+		const ulong kingMask = mask[kingFrom].bit ^ mask[kingTo].bit, rookMask = mask[rookFrom].bit ^ mask[rookTo].bit;
+		piece[Piece.none] ^= kingMask ^ rookMask;
+		piece[Piece.king] ^= kingMask;
+		piece[Piece.rook] ^= rookMask;
+		color[player] ^= kingMask ^ rookMask;
+		cpiece[kingFrom] = cpiece[rookFrom] = CPiece.none;
+		cpiece[kingTo] = toCPiece(Piece.king, player);
+		cpiece[rookTo] = toCPiece(Piece.rook, player);
 	}
 
 	bool isSquareAttacked(const Square x, const Color p, const ulong occupancy) const {
@@ -442,15 +474,10 @@ final class Board {
 
 		if (s[2] != "-") {
 			foreach (c; s[2]) stack[ply].castling |= toCastling(c);
+			stack[ply].castling &= piece[Piece.rook];
 		}
-		if (cpiece[Square.e1] == CPiece.wking) {
-			if (cpiece[Square.h1] != CPiece.wrook) stack[ply].castling &= ~1;
-			if (cpiece[Square.a1] != CPiece.wrook) stack[ply].castling &= ~2;
-		} else stack[ply].castling &= ~3;
-		if (cpiece[Square.e8] == CPiece.bking) {
-			if (cpiece[Square.h8] != CPiece.brook) stack[ply].castling &= ~4;
-			if (cpiece[Square.a8] != CPiece.brook) stack[ply].castling &= ~8;
-		} else stack[ply].castling &= ~12;
+		chess960 = ((stack[ply].castling & ~0x8100000000000081UL) != 0);
+
 
 		if (s[3] != "-") {
 			stack[ply].enpassant = toSquare(s[3]);
@@ -502,35 +529,40 @@ final class Board {
 		n.castling = u.castling;
 		n.enpassant = Square.none;
 		n.fifty = cast (byte) (u.fifty + 1);
+		n.castled = isCastling(move);
 
 		if (move != 0) {
-			n.victim = toPiece(cpiece[move.to]);
-			deplace(move.from, move.to, p);
-			if (n.victim) {
-				n.fifty = 0;
-				capture(n.victim, move.to, enemy);
-			}
-			if (p == Piece.pawn) {
-				n.fifty = 0;
-				if (move.promotion) {
-					piece[Piece.pawn] ^= to;
-					piece[move.promotion] ^= to;
-					cpiece[move.to] = toCPiece(move.promotion, player);
-				} else if (u.enpassant == move.to) {
-					const x = move.to.shift;
-					capture(Piece.pawn, x, enemy);
-					cpiece[x] = CPiece.none;
-				} else if (abs(move.to - move.from) == 16 && (mask[move.to].enpassant & (color[enemy] & piece[Piece.pawn]))) {
-					n.enpassant = move.to.shift;
+			if (n.castled) {
+				n.castling &= ~(piece[Piece.rook] & color[player]);
+				xKing[player] = kingCastleTo[move.side][player];
+				castle(move.from, kingCastleTo[move.side][player], move.to, rookCastleTo[move.side][player]);
+			} else {
+				n.castling &= ~(1UL << move.from) & ~(1UL << move.to);
+				n.victim = toPiece(cpiece[move.to]);
+				deplace(move.from, move.to, p);
+				if (n.victim) {
+					n.fifty = 0;
+					capture(n.victim, move.to, enemy);
 				}
-			} else if (p == Piece.king) {
-				if (move.to == move.from + 2) deplace(move.from + 3, move.from + 1, Piece.rook);
-				else if (move.to == move.from - 2) deplace(move.from - 4, move.from - 1, Piece.rook);
-				xKing[player] = move.to;
+				if (p == Piece.pawn) {
+					n.fifty = 0;
+					if (move.promotion) {
+						piece[Piece.pawn] ^= to;
+						piece[move.promotion] ^= to;
+						cpiece[move.to] = toCPiece(move.promotion, player);
+					} else if (u.enpassant == move.to) {
+						const x = move.to.shift;
+						capture(Piece.pawn, x, enemy);
+						cpiece[x] = CPiece.none;
+					} else if (abs(move.to - move.from) == 16 && (mask[move.to].enpassant & (color[enemy] & piece[Piece.pawn]))) {
+						n.enpassant = move.to.shift;
+					}
+				} else if (p == Piece.king) {
+					n.castling &= ~(piece[Piece.rook] & color[player]);
+					xKing[player] = move.to;
+				}
 			}
-			n.castling &= (mask[move.from].castling & mask[move.to].castling);
-		}
-
+		}		
 		player = enemy;
 		setPinsCheckers(n.checkers, n.pins);
 		++ply;
@@ -545,25 +577,27 @@ final class Board {
 
 		player = opponent(enemy);
 		if (move != 0) {
-			deplace(move.to, move.from, p);
-			if (n.victim) {
-				capture(n.victim, move.to, enemy);
-				cpiece[move.to] = toCPiece(n.victim, enemy);
-			}
-			if (p == Piece.pawn) {
-				if (move.promotion) {
-					piece[Piece.pawn] ^= to;
-					piece[move.promotion] ^= to;
-					cpiece[move.from] = toCPiece(Piece.pawn, player);
-				} else if (u.enpassant == move.to) {
-					const Square x = move.to.shift;
-					capture(Piece.pawn, x, enemy);
-					cpiece[x] = toCPiece(Piece.pawn, enemy);
-				}
-			} else if (p == Piece.king) {
-				if (move.to == move.from + 2) deplace(move.from + 1, move.from + 3, Piece.rook);
-				else if (move.to == move.from - 2) deplace(move.from - 1, move.from - 4, Piece.rook);
+			if (n.castled) {
+				castle(kingCastleTo[move.side][player], move.from, rookCastleTo[move.side][player], move.to);
 				xKing[player] = move.from;
+			} else {
+				deplace(move.to, move.from, p);
+				if (n.victim) {
+					capture(n.victim, move.to, enemy);
+					cpiece[move.to] = toCPiece(n.victim, enemy);
+				}
+				if (p == Piece.pawn) {
+					if (move.promotion) {
+						piece[Piece.pawn] ^= to;
+						piece[move.promotion] ^= to;
+						cpiece[move.from] = toCPiece(Piece.pawn, player);
+					} else if (u.enpassant == move.to) {
+						const Square x = move.to.shift;
+						capture(Piece.pawn, x, enemy);
+						cpiece[x] = toCPiece(Piece.pawn, enemy);
+					}
+				} 
+				if (p == Piece.king) xKing[player] = move.from;
 			}
 		}
 	}
@@ -597,8 +631,11 @@ final class Board {
 			target = enemies; static if (doQuiet) target |= empties;
 
 			static if (doQuiet) {
-				if (canCastle(kingside[player], k, k + 3, occupancy)) moves.push(k, cast (Square) (k + 2));
-				if (canCastle(queenside[player], k, k - 4, occupancy)) moves.push(k, cast (Square) (k - 2));
+				ulong rooks = stack[ply].castling & color[player];
+				while (rooks) {
+					x = popSquare(rooks);
+					if (canCastle(k, x, occupancy)) moves.push(k, x);
+				}
 			}
 
 			attacker = piece[Piece.pawn] & stack[ply].pins;
