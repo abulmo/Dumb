@@ -134,7 +134,7 @@ final class Search {
 		if (score > Score.high) write("mate ", (Score.mate + 1 - score) / 2);
 		else if (score < -Score.high) write("mate ", -(Score.mate + score) / 2);
 		else write("cp ", score);
-		writefln(" nodes %s time %.0f nps %.0f pv %s", nNodes, 1000 * timer.time, nNodes  / timer.time, pv[0]);
+		writefln(" nodes %s time %.0f nps %.0f pv %s", nNodes, 1000 * timer.time, nNodes  / timer.time, pv[0].toString(board));
 	}
 
 	void update(const Move m) {
