@@ -43,15 +43,15 @@ final shared class Event {
 
 	bool full() const @property { return first == (last + 1)  % ring.length; }
 
-	bool has(string s) { return !empty && ring[first] == s;	}
+	bool has(string s) const { return !empty && ring[first] == s;	}
 
 	void push(string s) {
 		synchronized (lock) {
 			if (full) {
-				const l = ring.length, δ = l - 1;
+				const l = ring.length, δ = l;
 				ring.length = 2 * l;
 				foreach (i ; 0 .. first) ring[i + δ] = ring[i];
-				last = first + δ;
+				last = first + δ - 1;
 			}
 			ring[last] = s;
 			last = (last + 1) % ring.length;
@@ -79,8 +79,9 @@ final shared class Event {
 		string line;
 		do {
 			line = readln().chomp();
+			if (line is null) line = "quit";
 			push(line);
-		} while (line != "quit" && stdin.isOpen);
+		} while (line != "quit");
 	}
 }
 
