@@ -23,7 +23,7 @@ class Uci {
 	Time [Color.size] time;
 	int depthMax, movesToGo;
 	ulong nodesMax;
-	bool canPonder, isPondering, easy;
+	bool canPonder, isPondering, chess960;
 
 	this() {
 		search = new Search;
@@ -50,10 +50,11 @@ class Uci {
 	}
 
 	void uci() const {
-		writeln("id name dumb 1.5");
+		writeln("id name dumb 1.6");
 		writeln("id author Richard Delorme");
 		writeln("option name Ponder type check default false");
 		writeln("option name Hash type spin default 64 min 1 max 65536");
+		writeln("option name UCI_Chess960 type check default false");
 		writeln("uciok");
 	}
 
@@ -63,6 +64,7 @@ class Uci {
 		string value = line.strip().toLower();
 		if (name == "ponder") canPonder = to!bool(value);
 		else if (name == "hash") search.resize(to!size_t(value) * 1024 * 1024);			
+		else if (name == "uci_chess960") chess960 = to!bool(value);
 	}
 
 	void ucinewgame() {
@@ -76,14 +78,15 @@ class Uci {
 		else if (findSkip(line, "fen")) board.set(line);
 		if (findSkip(line, "moves")) {
 			auto words = line.split();
-			foreach(w ; words) board.update(fromPan(w));
+			foreach(w ; words) board.update(fromPan(w, board));
 		}
+		board.chess960 = (board.chess960 || chess960);
 		search.set();
 	}
 
 	void bestmove() {
-		if (search.hint != 0 && canPonder) writeln("bestmove ", search.bestMove.toPan(), " ponder ", search.hint.toPan());
-		else writeln("bestmove ", search.bestMove.toPan());
+		if (search.hint != 0 && canPonder) writeln("bestmove ", search.bestMove.toPan(board), " ponder ", search.hint.toPan(board));
+		else writeln("bestmove ", search.bestMove.toPan(board));
 	}
 
 	void bench(const int depth) {
@@ -147,7 +150,7 @@ class Uci {
 			board.update(m);
 				if (depth == 1) count = 1; else count = perft(depth - 1);
 				total += count;
-				static if (div) writefln("%5s %16d", m.toPan(), count);
+				static if (div) writefln("%5s %16d", m.toPan(board), count);
 			board.restore(m);
 		}
 
@@ -182,6 +185,12 @@ class Uci {
 			{"17. Self stalemate", "K1k5/8/P7/8/8/8/8/8 w - - 0 1", 6, 2_217},
 			{"18. Stalemate/Checkmate", "8/k1P5/8/1K6/8/8/8/8 w - - 0 1", 7, 567_584},
 			{"19. Double check", "8/8/2k5/5q2/5n2/8/5K2/8 b - - 0 1", 4, 23_527},
+			{"20. Chess960", "bb1qnrkr/pp1p1pp1/1np1p3/4N2p/8/1P4P1/P1PPPP1P/BBNQ1RKR w HFhf - 0 9", 6, 776_836_316},
+			{"21. Chess960", "rnkbnrbq/2p1ppp1/p7/1p1p3p/3P4/1P4P1/P1P1PP1P/RNKBNRBQ w FAfa - 0 9", 6, 207_129_256},
+			{"22. Chess960", "qn1rkrbb/pp1p1ppp/2p1p3/3n4/4P2P/2NP4/PPP2PP1/Q1NRKRBB w FDfd - 1 9", 6, 233_468_620},
+			{"23. Chess960", "1nrbkr1q/1pppp1pp/1n6/p4p2/N1b4P/8/PPPPPPPB/N1RBKR1Q w FCfc - 2 9", 6, 696_353_497},
+			{"24. Chess960", "brqk2rb/ppppp1pp/4np2/8/2n5/3P1Q2/PP2PPPP/BR1KNNRB w GBgb - 0 9", 6, 874_251_866},
+			{"25. Chess960", "nrkrbqnb/p4ppp/1p2p3/2pp4/6P1/2P2N2/PPNPPP1P/1RKRBQ1B w DBdb - 0 9", 6, 547_233_320},
 		];
 
 		writeln("Testing the move generator");
@@ -200,7 +209,7 @@ class Uci {
 		moves.clear();
 		foreach (c ; Color.white .. Color.size) time[c] = Time.init;
 		foreach (i, ref w ; words) {
-			if (w == "searchmoves") foreach(m ; words[i..$]) moves.push(fromPan(m));
+			if (w == "searchmoves") foreach(m ; words[i..$]) moves.push(m.fromPan(board));
 			else if (w == "ponder") isPondering = true;
 			else if (w == "wtime" && i + 1 < words.length) time[Color.white].remaining = 0.001 * to!double(words[i + 1]);
 			else if (w == "btime" && i + 1 < words.length) time[Color.black].remaining = 0.001 * to!double(words[i + 1]);
