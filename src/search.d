@@ -129,7 +129,7 @@ final class Search {
 		return stop;
 	}
 
-	void writeUCI(const int d) const {
+	void writeUCI(const int d) {
 		write("info depth ", d, " score ");
 		if (score > Score.high) write("mate ", (Score.mate + 1 - score) / 2);
 		else if (score < -Score.high) write("mate ", -(Score.mate + score) / 2);
