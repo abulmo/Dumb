@@ -158,9 +158,14 @@ struct Line {
 
 	void set(const Move m, const ref Line l) { clear(); push(m); push(l); }
 
-	string toString(const Board b) const {
+	string toString(Board b) const {
 		string s;
-		foreach (m; move[0 .. n]) s ~= m.toPan(b) ~ " ";
+		foreach (m; move[0 .. n]) {
+			s ~= m.toPan(b) ~ " ";
+			b.update(m);
+		}
+		foreach_reverse (m; move[0 .. n]) b.restore(m);
+
 		return s;
 	}
 }
