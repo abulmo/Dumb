@@ -203,7 +203,7 @@ final class Search {
 			}
 		}
 
-		if (isPv) pv[ply].clear();
+		pv[ply].clear();
 
 		if (d <= 0) return qs(α, β);
 		if (abort()) return α;
