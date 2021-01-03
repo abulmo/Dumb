@@ -120,7 +120,7 @@ final class Eval {
 
 		foreach (x; allSquares) {
 			const Piece p = toPiece(b[x]);
-			const Color c = toColor(b[x]);
+			const Color c = cast (Color) (toColor(b[x]) & 1);
 			s.value[c] += material[p] + positional[p][forward(x, c)];
 			s.stage += stageValue[p];
 		}
