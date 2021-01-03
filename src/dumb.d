@@ -23,7 +23,7 @@ class Uci {
 	Time [Color.size] time;
 	int depthMax, movesToGo;
 	ulong nodesMax;
-	bool canPonder, isPondering, chess960;
+	bool canPonder, isPondering, isInfinite, chess960;
 
 	this() {
 		search = new Search;
@@ -50,7 +50,7 @@ class Uci {
 	}
 
 	void uci() const {
-		writeln("id name dumb 1.6");
+		writeln("id name dumb 1.7");
 		writeln("id author Richard Delorme");
 		writeln("option name Ponder type check default false");
 		writeln("option name Hash type spin default 64 min 1 max 65536");
@@ -76,11 +76,15 @@ class Uci {
 	void position(string line) {
 		if (findSkip(line, "startpos")) board.set();
 		else if (findSkip(line, "fen")) board.set(line);
+		board.chess960 = (board.chess960 || chess960);
 		if (findSkip(line, "moves")) {
 			auto words = line.split();
-			foreach(w ; words) board.update(fromPan(w, board));
+			foreach(w ; words) {
+				Move m = fromPan(w, board);
+				writeln(w, " -> ", m.toPan(board));
+				board.update(fromPan(w, board));
+			}
 		}
-		board.chess960 = (board.chess960 || chess960);
 		search.set();
 	}
 
@@ -127,7 +131,7 @@ class Uci {
 			search.set();
 			search.go(option, moves);
 			bestmove();
-			n += search.nNodes;
+			n += search.pvsNodes + search.qsNodes;
 			t += search.timer.time;
 		}
 
@@ -203,7 +207,7 @@ class Uci {
 
 	void go(string line) {
 		Option option = { {double.max}, {ulong.max}, {Limits.ply.max}, false };
-		bool isInfinite = isPondering = false;
+		isInfinite = isPondering = false;
 		string [] words = line.split();
 
 		moves.clear();
@@ -240,13 +244,14 @@ class Uci {
 			else if (findSkip(line, "setoption")) setoption(line);
 			else if (findSkip(line, "position")) position(line);
 			else if (findSkip(line, "go")) go(line);
-			else if ((findSkip(line, "stop") || (findSkip(line, "ponderhit")) && isPondering)) bestmove();
+			else if ((findSkip(line, "stop") && isInfinite) || (findSkip(line, "ponderhit") && isPondering)) bestmove();
 			else if (findSkip(line, "quit")) break;
 			else if (findSkip(line, "debug")) {}
 			else if (findSkip(line, "register")) {}
 			else if (findSkip(line, "perft ")) perft!true(to!int(line));
 			else if (findSkip(line, "bench ")) bench(to!int(line));
-			else writeln("error unknown command: '", line, "'");
+
+			else writeln("string info Error unknown command: '", line, "'");
 		}
 	}
 }
