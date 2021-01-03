@@ -94,7 +94,7 @@ final class Search {
 	Line [Limits.ply.max + 1] pv;
 	Move [2][Limits.ply.max + 2] killer;
 	ubyte [32][32] reduction;
-	ulong nNodes;
+	ulong pvsNodes, qsNodes;
 	int ply, score;
 	Chrono timer;
 	bool stop;
@@ -112,7 +112,7 @@ final class Search {
 	bool checkTime(const double timeMax) const { return option.isPondering || timer.time < timeMax; }
 
 	bool abort() {
-		if ((nNodes & 0x3ff) == 0) {
+		if ((pvsNodes & 0x3ff) == 0) {
 			if (event) {
 				if (option.isPondering && event.has("ponderhit")) {
 					option.isPondering = false;
@@ -125,7 +125,7 @@ final class Search {
 			}
 			if (!checkTime(option.time.max)) stop = true;
 		}
-		if (nNodes >= option.nodes.max) stop = true;
+		if (pvsNodes + qsNodes >= option.nodes.max) stop = true;
 		return stop;
 	}
 
@@ -134,14 +134,14 @@ final class Search {
 		if (score > Score.high) write("mate ", (Score.mate + 1 - score) / 2);
 		else if (score < -Score.high) write("mate ", -(Score.mate + score) / 2);
 		else write("cp ", score);
-		writefln(" nodes %s time %.0f nps %.0f pv %s", nNodes, 1000 * timer.time, nNodes  / timer.time, pv[0].toString(board));
+		writefln(" nodes %s time %.0f nps %.0f pv %s", pvsNodes + qsNodes, 1000 * timer.time, (pvsNodes + qsNodes)  / timer.time, pv[0].toString(board));
 	}
 
-	void update(const Move m) {
-		board.update(m);
+	void update(bool quiet = true)(const Move m) {
+		board.update!quiet(m);
 		if (m) eval.update(board, m);
 		++ply;
-		++nNodes;
+		static if (quiet) ++pvsNodes; else ++qsNodes;
 	}
 
 	void restore(const Move m) {
@@ -158,7 +158,6 @@ final class Search {
 		MoveItem i = void;
 		Move m;
 
-		if (abort()) return α;
 		if (board.isDraw) return 0;
 
 		bs = ply - Score.mate;
@@ -166,7 +165,6 @@ final class Search {
 		s = Score.mate - ply - 1;
 		if (s < β && (β = s) <= α) return s;			
 
-		const αOld = α;
 		if (!board.inCheck) {
 			bs = eval(board);
 			if ((bs > α) && (α = bs) >= β) return bs;
@@ -177,11 +175,10 @@ final class Search {
 		moves.generate!false(board, history);
 
 		while ((m = (i = moves.next).move) != 0) if (board.inCheck || i.isTactical) {
-			update(m);
+			update!false(m);
 				s = -qs(-β, -α);
 			restore(m);
-			if (stop) break;
-			if (s > bs && (bs = s) > α && (α = bs) >= β) break;
+			if (s > bs && (bs = s) > α && (α = bs) >= β) return bs;
 		}
 
 		return bs;
@@ -189,7 +186,7 @@ final class Search {
 
 	int pvs(int α, int β, const int d) {
 		const bool isPv = (α + 1 < β);
-		int e, r, s, bs, v, quiet = 0;
+		int e, r, s, bs, v, IIR = 0, quiet = 0;
 		Moves moves = void;
 		MoveItem i = void;
 		Move m;
@@ -205,8 +202,8 @@ final class Search {
 
 		pv[ply].clear();
 
-		if (d <= 0) return qs(α, β);
 		if (abort()) return α;
+		if (d <= 0) return qs(α, β);
 		if (board.isDraw) return 0;
 
 		bs = ply - Score.mate;
@@ -233,7 +230,7 @@ final class Search {
 			if (v <= α - δ && d <= 2) return qs(α, β);
 
 			if (v >= β && (board.color[board.player] & ~(board.piece[Piece.pawn] | board.piece[Piece.king]))) {
-				r = 3;
+				r = 3 + d / 4 + min((v - β) / 128, 3);
 				update(0);
 					s = -pvs(-β, -β + 1, d - r);
 				restore(0);
@@ -245,13 +242,7 @@ final class Search {
 			}
 		}
 
-		if (h.move == 0) {
-			r = isPv ? 2 : max(4, 2 + d / 4);
-			if (d > r) {
-				pvs(α, β, d - r);
-				tt.probe(board.key, h);
-			}
-		}
+		IIR = (h.move == 0);
 
 		moves.generate(board, history, h.move, killer[ply]);
 
@@ -262,7 +253,7 @@ final class Search {
 				e = board.inCheck;
 				if (moves.isFirst(m))  s = -pvs(-β, -α, d + e - 1);
 				else {
-					r = (i.isTactical || e || tactical) ?  0 : reduce(d, ++quiet);
+					r = (i.isTactical || e || tactical) ?  0 : reduce(d, ++quiet) + IIR;
 					s = -pvs(-α - 1, -α, d - r + e - 1);
 					if ((α < s && s < β) || (r && s > bs)) s = -pvs(-β, -α, d + e - 1);
 				}
@@ -330,7 +321,7 @@ final class Search {
 		writeUCI(d);
 	}
 
-	bool persist(const int d) const { return !stop && checkTime(0.7 * option.time.max) && d <= option.depth.max && nNodes < option.nodes.max; }
+	bool persist(const int d) const { return !stop && checkTime(0.7 * option.time.max) && d <= option.depth.max && pvsNodes + qsNodes < option.nodes.max; }
 
 	void clear() {
 		tt.clear();
@@ -354,7 +345,7 @@ final class Search {
 		timer.start();
 		option = o;
 		ply = 0;
-		nNodes = 0;
+		pvsNodes = qsNodes = 0;
 		stop = false;
 		if (moves.length > 0) rootMoves = moves;
 		if (rootMoves.length == 0) rootMoves.push(0);
