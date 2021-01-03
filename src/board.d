@@ -437,35 +437,35 @@ final class Board {
 		int r = 7, f;
 		string [] s = fen.split();
 
-		void error(string msg) { throw new Exception("Bad FEN: " ~ msg ~ " ; fen "); }
+		void error(string msg) { writeln("string info Error 'Bad FEN: ", msg, " in ", fen, "'"); set(); }
 
 		clear();
 
-		if (s.length < 4) error("missing fields");
+		if (s.length < 4) return error("missing fields");
 
 		foreach (c; s[0]) {
 			if (c== '/') {
-				if (r <= 0) error("rank overflow");
-				if (f != 8) error("missing square");
+				if (r <= 0) return error("rank overflow");
+				if (f != 8) return error("missing square");
 				f = 0; --r;
 			} else if (isDigit(c)) {
 				f += c - '0';
-				if (f > 8) error("file overflow");
+				if (f > 8) return error("file overflow");
 			} else {
-				if (f > 8) error("file overflow");
+				if (f > 8) return error("file overflow");
 				x = toSquare(f, r);
 				cpiece[x] = p = toCPiece(c);
-				if (cpiece[x] == CPiece.size) error("bad piece");
+				if (cpiece[x] == CPiece.size) return error("bad piece");
 				piece[toPiece(p)] |= mask[x].bit;
 				color[toColor(p)] |= mask[x].bit;
 				if (toPiece(p) == Piece.king) xKing[toColor(p)] = x;
 				++f;
 			}
 		}
-		if (r > 0 || f != 8) error("missing squares");
+		if (r > 0 || f != 8) return error("missing squares");
 
 		player = toColor(s[1][0]);
-		if (player == Color.size) error("bad player's turn");
+		if (player == Color.size) return error("bad player's turn");
 
 		if (s.length > 5 && isNumeric(s[4])) {
 			stack[ply].fifty = std.conv.to!ubyte(s[4]);
@@ -476,12 +476,12 @@ final class Board {
 			foreach (c; s[2]) stack[ply].castling |= toCastling(c);
 			stack[ply].castling &= piece[Piece.rook];
 		}
-		chess960 = ((stack[ply].castling & ~0x8100000000000081UL) != 0);
+		chess960 = ((stack[ply].castling & 0x7EFFFFFFFFFFFF7EUL) != 0 || (stack[ply].castling && piece[Piece.king] != 0x1000000000000010UL));
 
 
 		if (s[3] != "-") {
 			stack[ply].enpassant = toSquare(s[3]);
-			if (stack[ply].enpassant == Square.none) error("bad enpassant");
+			if (stack[ply].enpassant == Square.none) return error("bad enpassant");
 		}
 
 		piece[Piece.none] = ~(color[Color.white] | color[Color.black]);
@@ -518,14 +518,14 @@ final class Board {
 
 	bool isEnpassantCapture(const Move move) { return stack[ply].enpassant == move.to && cpiece[move.from] == toCPiece(Piece.pawn, player); }
 
-	void update(const Move move) {
+	void update(bool quiet = true)(const Move move) {
 		const to = mask[move.to].bit;
 		const enemy = opponent(player);
 		const p = toPiece(cpiece[move.from]);
 		const Stack *u = &stack[ply];
 		Stack *n = &stack[ply + 1];
 
-		n.key.update(this, move);
+		static if (quiet) n.key.update(this, move);
 		n.castling = u.castling;
 		n.enpassant = Square.none;
 		n.fifty = cast (byte) (u.fifty + 1);
@@ -714,15 +714,14 @@ final class Board {
 		}
 	}
 
-	Piece nextAttacker(ref ulong [Color.size] board, const Square to, const Color player, const Color enemy, ref Piece [Color.size] last) const {
-		const Piece [Piece.size] next = [Piece.none, Piece.pawn, Piece.knight, Piece.bishop, Piece.rook, Piece.bishop, Piece.size];
+	Piece nextAttacker(ref ulong [Color.size] board, const Square to, const Color player, const Color enemy, const Piece last) const {
+		static immutable Piece [Piece.size] next = [Piece.none, Piece.pawn, Piece.knight, Piece.bishop, Piece.rook, Piece.bishop, Piece.size];
 		const ulong occupancy = board[player] | board[enemy];
 		ulong attacker;
 
-		for (Piece p = next[last[player]]; p <= Piece.king; ++p) {
+		for (Piece p = next[last]; p <= Piece.king; ++p) {
 			if ((attacker = attack(p, to, piece[p] & board[player], occupancy, enemy)) != 0) {
 				board[player] ^= (attacker & -attacker);
-				last[player] = p;
 				return p;
 			}
 		}
@@ -731,28 +730,29 @@ final class Board {
 
 	int see(const Move move) const {
 		const Color enemy = opponent(player);
-		const Piece p = toPiece(cpiece[move.from]);
 		ulong [Color.size] board = color;
 		Piece [Color.size] last = [Piece.pawn, Piece.pawn];
-		Piece attacker = (p == Piece.pawn && stack[ply].enpassant == move.to) ? Piece.pawn : toPiece(cpiece[move.to]);
-		int score = seeValue[attacker], α = score - seeValue[p], β = score;
+		Piece attacker = toPiece(cpiece[move.from]);
+		Piece defender = (attacker == Piece.pawn && stack[ply].enpassant == move.to) ? Piece.pawn : toPiece(cpiece[move.to]);
+		int β = seeValue[defender], α = β - seeValue[attacker], score;
 
 		if (α <= 0) {
 			board[player] ^= mask[move.from].bit;
-			score -= seeValue[p];
-			if ((attacker = nextAttacker(board, move.to, enemy, player, last)) == Piece.none) return β;
+			if ((defender = nextAttacker(board, move.to, enemy, player, Piece.pawn)) == Piece.none) return β;
+			score = α;
+			attacker = Piece.pawn;
 			while (true) {
-				score += seeValue[attacker];
-				if (score <= α || (attacker = nextAttacker(board, move.to, player, enemy, last)) == Piece.none) return α;
+				score += seeValue[defender];
+				if (score <= α || (attacker = nextAttacker(board, move.to, player, enemy, attacker)) == Piece.none) return α;
 				if (score < β) β = score;
 
 				score -= seeValue[attacker];
-				if (score >= β || (attacker = nextAttacker(board, move.to, enemy, player, last)) == Piece.none) return β;
+				if (score >= β || (defender = nextAttacker(board, move.to, enemy, player, defender)) == Piece.none) return β;
 				if (score > α) α = score;
 			}
 		}
 
-		return score;
+		return β;
 	}
 }
 
