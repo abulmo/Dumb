@@ -79,9 +79,7 @@ class Uci {
 		board.chess960 = (board.chess960 || chess960);
 		if (findSkip(line, "moves")) {
 			auto words = line.split();
-			foreach(w ; words) {
-				board.update(fromPan(w, board));
-			}
+			foreach(w ; words) board.update(w.fromPan(board));
 		}
 		search.set();
 	}
@@ -242,7 +240,7 @@ class Uci {
 			else if (findSkip(line, "setoption")) setoption(line);
 			else if (findSkip(line, "position")) position(line);
 			else if (findSkip(line, "go")) go(line);
-			else if ((findSkip(line, "stop") && isInfinite) || (findSkip(line, "ponderhit") && isPondering)) bestmove();
+			else if (findSkip(line, "stop") || findSkip(line, "ponderhit")) { if (isInfinite || isPondering) bestmove(); }
 			else if (findSkip(line, "quit")) break;
 			else if (findSkip(line, "debug")) {}
 			else if (findSkip(line, "register")) {}
