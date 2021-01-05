@@ -80,8 +80,6 @@ class Uci {
 		if (findSkip(line, "moves")) {
 			auto words = line.split();
 			foreach(w ; words) {
-				Move m = fromPan(w, board);
-				writeln(w, " -> ", m.toPan(board));
 				board.update(fromPan(w, board));
 			}
 		}
