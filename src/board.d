@@ -71,6 +71,8 @@ int rank(const Square x) { return x >> 3; }
 
 int file(const Square x) { return x & 7; }
 
+ulong toBit(const Square x) { return 1UL << x; }
+
 Square toSquare(const int f, const int r) {	return cast (Square) ((r << 3) + f); }
 
 Square toSquare(string s) { return toSquare(s[0] - 'a', s[1] - '1'); }
@@ -92,7 +94,7 @@ ulong toCastling(const char c) {
 	with (Square) {
 		static immutable Square  [] rooks = [h1, a1, h8, a8, a1, b1, c1, d1, e1, f1, g1, h1, a8, b8, c8, d8, e8, f8, g8, h8];
 		size_t i = indexOf("KQkqABCDEFGHabcdefgh", c);
-		return i == -1 ? 0 : 1UL << rooks[i];
+		return i == -1 ? 0 : rooks[i].toBit;
 	}
 }
 
@@ -146,7 +148,7 @@ struct Key {
 			} else {
 				code ^= square[p][move.from] ^ square[p][move.to];
 				code ^= square[board[move.to]][move.to];
-				rooks = ((1UL << move.from) | (1UL << move.to)) & board.piece[Piece.rook];
+				rooks = (move.from.toBit | move.to.toBit) & board.piece[Piece.rook];
 				if (toPiece(p) == Piece.pawn) {
 					if (move.promotion) code ^= square[p][move.to] ^ square[toCPiece(move.promotion, player)][move.to];
 					else if (s.enpassant == move.to) code ^= square[toCPiece(Piece.pawn, enemy)][move.to.shift];
@@ -163,7 +165,7 @@ struct Key {
 
 /* Bitmask */
 struct Mask {
-	ulong bit, diagonal, antidiagonal, file, rank;
+	ulong diagonal, antidiagonal, file, rank;
 	ulong [Color.size] pawnAttack, push;
 	ulong enpassant, knight, king;
 	ulong [Square.size] between;
@@ -202,8 +204,6 @@ final class Board {
 	shared static this() {
 		int b, y, z;
 		byte [Square.size] d;
-		static immutable ubyte [6] castling = [13, 12, 14, 7, 3, 11];
-		static immutable Square [6] castlingX = [Square.a1, Square.e1, Square.h1, Square.a8, Square.e8, Square.h8];
 		static immutable int [2][8] knightDir = [[-2,-1], [-2,1], [-1,-2], [-1,2], [1,-2], [1,2], [2,-1], [2,1]];
 		static immutable int [2][8] kingDir   = [[-1,-1], [-1,0], [-1,1], [0,-1], [0,1], [1,-1], [1,0], [1,1]];
 
@@ -214,8 +214,6 @@ final class Board {
 		foreach (x; allSquares) {
 
 			const int f = file(x), r = rank(x);
-
-			mask[x].bit = 1UL << x;
 
 			foreach (dir; kingDir)
 			foreach (k; 1 .. 8) {
@@ -230,8 +228,8 @@ final class Board {
 			for (y = x + 9; y < Square.size && d[y] == 9; y += 9) mask[x].diagonal |= 1UL << y;
 			for (y = x - 7; y >= 0 && d[y] == -7; y -= 7) mask[x].antidiagonal |= 1UL << y;
 			for (y = x + 7; y < Square.size && d[y] == 7; y += 7) mask[x].antidiagonal |= 1UL << y;
-			mask[x].file = fileMask[file(x)] ^ mask[x].bit;
-			mask[x].rank = rankMask[rank(x)] ^ mask[x].bit;
+			mask[x].file = fileMask[file(x)] ^ x.toBit;
+			mask[x].rank = rankMask[rank(x)] ^ x.toBit;
 
 			mask[x].pawnAttack[Color.white] = bit(f - 1, r + 1) | bit (f + 1, r + 1);
 			mask[x].pawnAttack[Color.black] = bit(f - 1, r - 1) | bit (f + 1, r - 1);
@@ -267,12 +265,11 @@ final class Board {
 		const Color enemy = opponent(player);
 		const Square kingTo = kingFrom < rookFrom ? kingCastleTo[Castling.kingSide][player] : kingCastleTo[Castling.queenSide][player];
 		const Square rookTo = kingFrom < rookFrom ? rookCastleTo[Castling.kingSide][player] : rookCastleTo[Castling.queenSide][player];
-		ulong kingPath = mask[kingFrom].between[kingTo] | (1UL << kingTo);
-		ulong rookPath = mask[rookFrom].between[rookTo] | (1UL << rookTo);
+		ulong kingPath = mask[kingFrom].between[kingTo] | kingTo.toBit, rookPath = mask[rookFrom].between[rookTo] | rookTo.toBit;
 
-		if ((stack[ply].castling & (1UL << rookFrom)) == 0) return false;
-		if (((kingPath | rookPath) & occupancy & ~(1UL << rookFrom) & ~(1UL << kingFrom)) != 0)  return false;
-		while (kingPath) if (isSquareAttacked(popSquare(kingPath), enemy, occupancy ^ (1UL << rookFrom))) return false;
+		if ((stack[ply].castling & rookFrom.toBit) == 0) return false;
+		if (((kingPath | rookPath) & occupancy & ~rookFrom.toBit & ~kingFrom.toBit) != 0)  return false;
+		while (kingPath) if (isSquareAttacked(popSquare(kingPath), enemy, occupancy ^ rookFrom.toBit)) return false;
 
 		return true;
 	}
@@ -285,7 +282,7 @@ final class Board {
 	static ulong attack(const ulong occupancy, const Square x, const ulong m)  {
 		const ulong o = occupancy & m;
 		const ulong r = bswap(o);
-		return ((o - mask[x].bit) ^ bswap(r - mask[x ^ 56].bit)) & m;
+		return ((o - x.toBit) ^ bswap(r - x.mirror.toBit)) & m;
 	}
 
 	static ulong rankAttack(const ulong occupancy, const Square x) {
@@ -340,8 +337,8 @@ final class Board {
 		checkers &= color[enemy];
 	}
 
-	void deplace(const int from, const int to, const Piece p) {
-		const ulong M = mask[from].bit ^ mask[to].bit;
+	void deplace(const Square from, const Square to, const Piece p) {
+		const ulong M = from.toBit ^ to.toBit;
 		piece[Piece.none] ^= M;
 		piece[p] ^= M;
 		color[player] ^= M;
@@ -350,14 +347,14 @@ final class Board {
 	}
 
 	void capture(const Piece victim, const Square x, const Color enemy) {
-		const ulong M = mask[x].bit;
+		const ulong M = x.toBit;
 		piece[Piece.none] ^= M;
 		piece[victim] ^= M;
 		color[enemy] ^= M;
 	}
 
-	void castle(const int kingFrom, const int kingTo, const int rookFrom, const int rookTo) {
-		const ulong kingMask = mask[kingFrom].bit ^ mask[kingTo].bit, rookMask = mask[rookFrom].bit ^ mask[rookTo].bit;
+	void castle(const Square kingFrom, const Square kingTo, const Square rookFrom, const Square rookTo) {
+		const ulong kingMask = kingFrom.toBit ^ kingTo.toBit, rookMask = rookFrom.toBit ^ rookTo.toBit;
 		piece[Piece.none] ^= kingMask ^ rookMask;
 		piece[Piece.king] ^= kingMask;
 		piece[Piece.rook] ^= rookMask;
@@ -456,8 +453,8 @@ final class Board {
 				x = toSquare(f, r);
 				cpiece[x] = p = toCPiece(c);
 				if (cpiece[x] == CPiece.size) return error("bad piece");
-				piece[toPiece(p)] |= mask[x].bit;
-				color[toColor(p)] |= mask[x].bit;
+				piece[toPiece(p)] |= x.toBit;
+				color[toColor(p)] |= x.toBit;
 				if (toPiece(p) == Piece.king) xKing[toColor(p)] = x;
 				++f;
 			}
@@ -519,7 +516,7 @@ final class Board {
 	bool isEnpassantCapture(const Move move) { return stack[ply].enpassant == move.to && cpiece[move.from] == toCPiece(Piece.pawn, player); }
 
 	void update(bool quiet = true)(const Move move) {
-		const to = mask[move.to].bit;
+		const to = move.to.toBit;
 		const enemy = opponent(player);
 		const p = toPiece(cpiece[move.from]);
 		const Stack *u = &stack[ply];
@@ -537,7 +534,7 @@ final class Board {
 				xKing[player] = kingCastleTo[move.side][player];
 				castle(move.from, kingCastleTo[move.side][player], move.to, rookCastleTo[move.side][player]);
 			} else {
-				n.castling &= ~(1UL << move.from) & ~(1UL << move.to);
+				n.castling &= ~(move.from.toBit) & ~(move.to.toBit);
 				n.victim = toPiece(cpiece[move.to]);
 				deplace(move.from, move.to, p);
 				if (n.victim) {
@@ -569,7 +566,7 @@ final class Board {
 	}
 
 	void restore(const Move move) {
-		const ulong to = mask[move.to].bit;
+		const ulong to = move.to.toBit;
 		const Color enemy = player;
 		const p = move.promotion ? Piece.pawn : toPiece(cpiece[move.to]);
 		const Stack *n = &stack[ply];
@@ -676,12 +673,12 @@ final class Board {
 			x = to.shift;
 			from = cast (Square) (x - 1);
 			if (file(to) > 0 && cpiece[from] == toCPiece(Piece.pawn, player)) {
-				o = occupancy ^ (mask[from].bit | mask[x].bit | mask[to].bit);
+				o = occupancy ^ (from.toBit | x.toBit | to.toBit);
 				if (!attack(Piece.bishop, k, bq & color[enemy], o) && !attack(Piece.rook, k, rq & color[enemy], o)) moves.push(from, to);
 			}
 			from = cast (Square) (x + 1);
 			if (file(to) < 7 && cpiece[from] == toCPiece(Piece.pawn, player)) {
-				o = occupancy ^ (mask[from].bit | mask[x].bit | mask[to].bit);
+				o = occupancy ^ (from.toBit | x.toBit | to.toBit);
 				if (!attack(Piece.bishop, k, bq & color[enemy], o) && !attack(Piece.rook, k, rq & color[enemy], o)) moves.push(from, to);
 			}
 		}
@@ -707,7 +704,7 @@ final class Board {
 
 		target = color[enemy]; static if (doQuiet) target |= piece[Piece.none];
 		attacked = attack(Piece.king, k, target);
-		o = occupancy ^ mask[k].bit;
+		o = occupancy ^ k.toBit;
 		while (attacked) {
 			to = popSquare(attacked);
 			if (!isSquareAttacked(to, enemy, o)) moves.push(k, to);
@@ -731,13 +728,12 @@ final class Board {
 	int see(const Move move) const {
 		const Color enemy = opponent(player);
 		ulong [Color.size] board = color;
-		Piece [Color.size] last = [Piece.pawn, Piece.pawn];
 		Piece attacker = toPiece(cpiece[move.from]);
 		Piece defender = (attacker == Piece.pawn && stack[ply].enpassant == move.to) ? Piece.pawn : toPiece(cpiece[move.to]);
 		int β = seeValue[defender], α = β - seeValue[attacker], score;
 
 		if (α <= 0) {
-			board[player] ^= mask[move.from].bit;
+			board[player] ^= move.from.toBit;
 			if ((defender = nextAttacker(board, move.to, enemy, player, Piece.pawn)) == Piece.none) return β;
 			score = α;
 			attacker = Piece.pawn;
