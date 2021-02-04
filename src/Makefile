@@ -54,7 +54,7 @@ EXE = dumb
 pgo:$(SRC)
 	$(MAKE) clean
 	$(DC) $(FFLAGS) $(PGO_GEN) $(SRC)
-	$(PGO_FILE) ./$(EXE) -b 14
+	$(PGO_FILE) ./$(EXE) -b 18
 	$(PGO_MERGE)
 	$(DC) $(FFLAGS) $(PGO_USE) $(SRC)
 
