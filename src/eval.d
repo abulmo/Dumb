@@ -11,7 +11,7 @@ import std.algorithm, std.range, std.stdio;
 
 enum Score {mate = 30_000, low = -29_000, high = 29_000, big = 3_000}
 
-/* Value: a pair of opening / engame score */
+/* Value: a pair of opening / endgame score */
 struct Value {
 	int opening;
 	int endgame;
@@ -28,7 +28,7 @@ struct Value {
 }
 
 /* Evaluation function */
-final class Eval {
+struct Eval {
 	struct Stack {
 		Value [Color.size] value;
 		int stage;
