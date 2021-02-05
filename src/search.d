@@ -40,14 +40,12 @@ final class TranspositionTable {
 	Entry [] entry;
 	size_t mask;
 
-	this(size_t size) {
-		resize(size);
-		clear();
-	}
+	this(size_t size) { resize(size); }
 
 	void resize(size_t size) {
 		mask = (1 << bsf(size / Entry.sizeof)) - 1;
 		entry.length = mask + bucketSize;
+		clear();
 	}
 
 	void clear() { foreach (ref h; entry) h = Entry.init; }
@@ -87,23 +85,23 @@ struct Option {
 
 /* Search */
 final class Search {
+	Board board;
 	Eval eval;
 	TranspositionTable tt;
 	History history;
 	Moves rootMoves;
+	shared Event event;
+	Option option;
+	Chrono timer;
 	Line [Limits.ply.max + 1] pv;
 	Move [2][Limits.ply.max + 2] killer;
 	ubyte [32][32] reduction;
+	int [Limits.ply.max + 1] sv;
 	ulong pvsNodes, qsNodes;
 	int ply, score;
-	Chrono timer;
 	bool stop;
-	shared Event event;
-	Option option;
-	Board board;
 
 	this(size_t size = 64 * 1024 * 1024) {
-		eval = new Eval;
 		tt = new TranspositionTable(size);
 		foreach (d; 1 .. 32)
 		foreach (m; 1 .. 32) reduction[d][m] = cast (ubyte) (1.1 * std.math.log(d) + 0.7 * std.math.log(m));
@@ -141,7 +139,6 @@ final class Search {
 		board.update!quiet(m);
 		if (m) eval.update(board, m);
 		++ply;
-		static if (quiet) ++pvsNodes; else ++qsNodes;
 	}
 
 	void restore(const Move m) {
@@ -152,18 +149,25 @@ final class Search {
 
 	int reduce(const int d, const int m) const { return reduction[min(d, 31)][min(m, 31)]; }
 
+	void store(Move m, const int d, const ref Moves moves) {
+		if (m != killer[ply][0]) { killer[ply][1] = killer[ply][0]; killer[ply][0] = m; }
+		history.update(board, m, d * d, history.good);
+		for (int k = 0; m != moves[k]; ++k) history.update(board, moves[k], d * d, history.bad);
+	}
+
 	int qs(int α, int β) {
 		int s, bs; 
 		Moves moves = void;
 		MoveItem i = void;
 		Move m;
 
+		++qsNodes;
+
 		if (board.isDraw) return 0;
 
 		bs = ply - Score.mate;
-		if (bs > α && (α = bs) >= β) return bs;
 		s = Score.mate - ply - 1;
-		if (s < β && (β = s) <= α) return s;			
+		if (s < β && (β = s) <= α) return α;
 
 		if (!board.inCheck) {
 			bs = eval(board);
@@ -192,24 +196,18 @@ final class Search {
 		Move m;
 		Entry h;
 
-		void store(Move m) {
-			if (!i.isTactical) {
-				if (m != killer[ply][0]) { killer[ply][1] = killer[ply][0]; killer[ply][0] = m; }
-				history.update(board, m, d * d, history.good);
-				for (int k = 0; m != moves[k]; ++k) history.update(board, moves[k], d * d, history.bad);
-			}
-		}
-
 		pv[ply].clear();
 
 		if (abort()) return α;
 		if (d <= 0) return qs(α, β);
+
+		++pvsNodes;
+
 		if (board.isDraw) return 0;
 
 		bs = ply - Score.mate;
-		if (bs > α && (α = bs) >= β) return bs;
 		s = Score.mate - ply - 1;
-		if (s < β && (β = s) <= α) return s;		
+		if (s < β && (β = s) <= α) return α;
 
 		if (tt.probe(board.key, h) && !isPv) {
 			s = h.score(ply);
@@ -219,15 +217,20 @@ final class Search {
 				else if (h.bound == Bound.upper && s <= α) return s;
 			}
 		}
-		v = eval(board);
+
+		v = sv[ply] = eval(board);
 		if (ply == Limits.ply.max) return v;
 
-		const bool tactical = isPv || board.inCheck || abs(v) >= Score.big || α >= Score.big || β <= -Score.big;
+		const bool tactical = (board.inCheck || abs(v) >= Score.big || α >= Score.big || β <= -Score.big);
+		const bool suspicious = (isPv || (ply >= 2 && sv[ply] > sv[ply - 2]));
 
-		if (!tactical) {
+		if (!tactical && !isPv) {
 			const δ = 200 * d - 100;
 			if (v >= β + δ) return β;
-			if (v <= α - δ && d <= 2) return qs(α, β);
+			if (v <= α - δ) {
+				if (d <= 2) return qs(α, β);
+				else if (qs(α - δ, α - δ + 1) <= α - δ) return α;
+			}
 
 			if (v >= β && (board.color[board.player] & ~(board.piece[Piece.pawn] | board.piece[Piece.king]))) {
 				r = 3 + d / 4 + min((v - β) / 128, 3);
@@ -244,26 +247,32 @@ final class Search {
 
 		IIR = (h.move == 0);
 
-		moves.generate(board, history, h.move, killer[ply]);
+		if (ply == 0) moves = rootMoves;
+		else moves.generate(board, history, h.move, killer[ply]);
 
 		const αOld = α;
 
 		while ((m = (i = moves.next).move) != 0) {
 			update(m);
 				e = board.inCheck;
-				if (moves.isFirst(m))  s = -pvs(-β, -α, d + e - 1);
+				if (moves.isFirst(m)) s = -pvs(-β, -α, d + e - 1);
 				else {
-					r = (i.isTactical || e || tactical) ?  0 : reduce(d, ++quiet) + IIR;
-					s = -pvs(-α - 1, -α, d - r + e - 1);
-					if ((α < s && s < β) || (r && s > bs)) s = -pvs(-β, -α, d + e - 1);
+					r = (i.isTactical || e || tactical) ? 0 : reduce(d, ++quiet) + IIR;
+					if (r && suspicious) --r;
+					if (r && quiet > (4 + d * d) / (2 - suspicious)) s = bs;
+					else {
+						s = -pvs(-α - 1, -α, d + e - r - 1);
+						if ((r && s > bs) || (α < s && s < β)) s = -pvs(-β, -α, d + e - 1);
+					}
 				}
 			restore(m);
 			if (stop) break;
 			if (s > bs && (bs = s) > α) {
-				tt.store(board.key, d, ply, tt.bound(bs, β), bs, m);
-				if (!i.isTactical) store(m);
+				if (ply == 0) rootMoves.setBest(m, 0);
+				else tt.store(board.key, d, ply, tt.bound(bs, β), bs, m);
+				if (!i.isTactical) store(m, d, moves);
 				if (isPv) pv[ply].set(m, pv[ply + 1]);
-				if ((α = bs) >= β) return bs;
+				if ((α = bs) >= β) break;
 			}
 		}
 
@@ -277,43 +286,14 @@ final class Search {
 		return bs;
 	}
 
-	void pvsRoot(int α, const int β, const int d) {
-		const αOld = α;
-		int e, s, bs = -Score.mate;
-
-		pv[0].clear();
-
-		foreach (i; 0 .. rootMoves.length) {
-			Move m = rootMoves[i];
-			update(m);
-				e = board.inCheck;
-				if (i == 0)  s = -pvs(-β, -α, d + e - 1);
-				else {
-					s = -pvs(-α - 1, -α, d + e - 1);
-					if (α < s && s < β) s = -pvs(-β, -α, d + e - 1);
-				}
-			restore(m);
-			if (stop) break;
-			if (s > bs && (bs = s) > α) {
-				rootMoves.setBest(m, 0);
-				pv[0].set(m, pv[1]);
-				tt.store(board.key, d, 0, tt.bound(bs, β), bs, m); 
-				if ((α = bs) >= β) break;
-			}
-		}
-
-		if (!stop && bs <= αOld) tt.store(board.key, d, ply, Bound.upper, bs, rootMoves[0]);
-		if (!stop || bs > -Score.mate) score = bs;
-	}
-
 	void aspiration(const int α, const int β, const int d) {
 		int λ, υ, δ = +10;
 
 		if (d <= 4) {
-			pvsRoot(α, β, d);
+			score = pvs(α, β, d);
 		} else for (λ = score - δ, υ = score + δ; !stop; δ *= 2) {
 			λ = max(α, λ); υ = min(β, υ);
-			pvsRoot(λ, υ, d);
+			score = pvs(λ, υ, d);
 			if      (score <= λ && λ > α) { υ = (λ + υ) / 2; λ = score - δ; }
 			else if (score >= υ && υ < β) { λ = (λ + υ) / 2; υ = score + δ; }
 			else break;
