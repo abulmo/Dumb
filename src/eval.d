@@ -115,8 +115,7 @@ struct Eval {
 		Stack *s = &stack[0];
 
 		ply = 0;
-		s.value[Color.white] = s.value[Color.black] = Value.init;
-		s.stage = 0;
+		*s = Stack.init;
 
 		foreach (x; allSquares) {
 			const Piece p = toPiece(b[x]);
