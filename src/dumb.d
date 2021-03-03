@@ -50,10 +50,9 @@ class Uci {
 	}
 
 	void uci() const {
-		writeln("id name dumb 1.8");
+		writeln("id name dumber 1.0");
 		writeln("id author Richard Delorme");
 		writeln("option name Ponder type check default false");
-		writeln("option name Hash type spin default 64 min 1 max 65536");
 		writeln("option name UCI_Chess960 type check default false");
 		writeln("uciok");
 	}
@@ -63,12 +62,10 @@ class Uci {
 		findSkip(line, "value");
 		string value = line.strip().toLower();
 		if (name == "ponder") canPonder = to!bool(value);
-		else if (name == "hash") search.resize(to!size_t(value) * 1024 * 1024);			
 		else if (name == "uci_chess960") chess960 = to!bool(value);
 	}
 
 	void ucinewgame() {
-		search.clear();
 		board.set();
 		search.set();
 	}
