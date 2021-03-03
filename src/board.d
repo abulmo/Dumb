@@ -710,45 +710,5 @@ final class Board {
 			if (!isSquareAttacked(to, enemy, o)) moves.push(k, to);
 		}
 	}
-
-	Piece nextAttacker(ref ulong [Color.size] board, const Square to, const Color player, const Color enemy, const Piece last) const {
-		static immutable Piece [Piece.size] next = [Piece.none, Piece.pawn, Piece.knight, Piece.bishop, Piece.rook, Piece.bishop, Piece.size];
-		const ulong occupancy = board[player] | board[enemy];
-		ulong attacker;
-
-		for (Piece p = next[last]; p <= Piece.king; ++p) {
-			if ((attacker = attack(p, to, piece[p] & board[player], occupancy, enemy)) != 0) {
-				board[player] ^= (attacker & -attacker);
-				return p;
-			}
-		}
-		return Piece.none;
-	}
-
-	int see(const Move move) const {
-		const Color enemy = opponent(player);
-		ulong [Color.size] board = color;
-		Piece attacker = toPiece(cpiece[move.from]);
-		Piece defender = (attacker == Piece.pawn && stack[ply].enpassant == move.to) ? Piece.pawn : toPiece(cpiece[move.to]);
-		int β = seeValue[defender], α = β - seeValue[attacker], score;
-
-		if (α <= 0) {
-			board[player] ^= move.from.toBit;
-			if ((defender = nextAttacker(board, move.to, enemy, player, Piece.pawn)) == Piece.none) return β;
-			score = α;
-			attacker = Piece.pawn;
-			while (true) {
-				score += seeValue[defender];
-				if (score <= α || (attacker = nextAttacker(board, move.to, player, enemy, attacker)) == Piece.none) return α;
-				if (score < β) β = score;
-
-				score -= seeValue[attacker];
-				if (score >= β || (defender = nextAttacker(board, move.to, enemy, player, defender)) == Piece.none) return β;
-				if (score > α) α = score;
-			}
-		}
-
-		return β;
-	}
 }
 
