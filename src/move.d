@@ -38,28 +38,6 @@ Move fromPan(string s, const Board b) {
 enum Bonus : short { tt = 10_000, killer = 10, history = 16_384, badCapture = -32_768 }
 
 
-/* History */
-struct History {
-	ushort [Square.size][CPiece.size] good, bad;
-
-	void scale(const int r = 2) {
-		foreach (p; CPiece.wpawn .. CPiece.size)
-		foreach (x; Square.a1 .. Square.size) {
-			good[p][x] /= r;
-			bad[p][x] /= r;
-		}
-	}
-
-	void update(const Board board, const Move m, const uint δ, ref ushort [Square.size][CPiece.size] a) {
-		if ((a[board[m.from]][m.to] += δ) > Bonus.history) scale();
-	}
-
-	short value(const CPiece p, const Square to) const {
-		if (good[p][to] + bad[p][to] == 0) return -Bonus.history / 2;
-		else return cast (short) ((good[p][to] * Bonus.history) / (good[p][to] + bad[p][to]) - Bonus.history);
-	}
-}
-
 /* MoveItem : a move / sorting value */
 struct MoveItem {
 	Move move;
@@ -91,22 +69,16 @@ struct Moves {
 
 	size_t length() const @property { return n; }
 
-	void generate(bool doQuiet = true)(Board board, const ref History h, const Move ttMove = 0, const Move [2] killer = [0, 0]) {
+	void generate(bool doQuiet = true)(Board board) {
 		index = n = 0;
 		if (board.inCheck) board.generateMoves!true(this); else board.generateMoves!doQuiet(this);
 		foreach(ref i; item[0 .. n]) {
-			if (i.move == ttMove) i.value = Bonus.tt;
-			else {
-				const p = toPiece(board[i.move.from]);
-				const victim = board.isEnpassantCapture(i.move) ? Piece.pawn : toPiece(board[i.move.to]);
-				if (victim || i.move.promotion) { 
-					i.value = cast (short) (vCapture[victim] + vPromotion[i.move.promotion] - vPiece[p]);
-					if (board.see(i.move) < 0) i.value += Bonus.badCapture;
-				} else if (i.move == killer[0]) i.value = Bonus.killer;
-				else if (i.move == killer[1]) i.value = Bonus.killer - 1;
-				else i.value = h.value(board[i.move.from], i.move.to);
+			const p = toPiece(board[i.move.from]);
+			const victim = board.isEnpassantCapture(i.move) ? Piece.pawn : toPiece(board[i.move.to]);
+			if (victim || i.move.promotion) { 
+				i.value = cast (short) (vCapture[victim] + vPromotion[i.move.promotion] - vPiece[p]);
 			}
-		}
+		}	
 		insertionSort(item[0 .. n]);
 		item[n] = MoveItem.init;
 	}
@@ -141,8 +113,6 @@ struct Moves {
 	}
 
 	Move opIndex(const size_t i) const { return item[i].move; }
-	
-	bool isFirst(const Move m) const { return m == item[0].move; }
 }
 
 /* struct Line: a sequence of moves */
