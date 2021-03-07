@@ -53,10 +53,10 @@ EXE = dumb
 
 pgo:$(SRC)
 	$(MAKE) clean
-	$(DC) $(FFLAGS) $(PGO_GEN) $(SRC)
+	$(DC) $(FFLAGS) $(OS) $(PGO_GEN) $(SRC)
 	$(PGO_FILE) ./$(EXE) -b 5
 	$(PGO_MERGE)
-	$(DC) $(FFLAGS) $(PGO_USE) $(SRC)
+	$(DC) $(FFLAGS) $(OS) $(PGO_USE) $(SRC)
 
 debug:$(SRC)
 	$(DC) $(DFLAGS) $(SRC)
