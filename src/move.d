@@ -35,15 +35,10 @@ Move fromPan(string s, const Board b) {
 	return cast (Move) (from | to << 6 | promotion << 12);
 }
 
-enum Bonus : short { tt = 10_000, killer = 10, history = 16_384, badCapture = -32_768 }
-
-
 /* MoveItem : a move / sorting value */
 struct MoveItem {
 	Move move;
 	short value;
-
-	bool isTactical() const { return value > Bonus.killer; }
 }
 
 void insertionSort(MoveItem [] items) {
@@ -77,10 +72,10 @@ struct Moves {
 			const victim = board.isEnpassantCapture(i.move) ? Piece.pawn : toPiece(board[i.move.to]);
 			if (victim || i.move.promotion) { 
 				i.value = cast (short) (vCapture[victim] + vPromotion[i.move.promotion] - vPiece[p]);
-			}
+			} else i.value = cast (short) -vPiece[p];
 		}	
-		insertionSort(item[0 .. n]);
 		item[n] = MoveItem.init;
+		insertionSort(item[0 .. n]);
 	}
 	
 	void generateAll(Board board) {
