@@ -30,14 +30,14 @@ final class Search {
 	Option option;
 	Chrono timer;
 	Line [Limits.ply.max + 1] pv;
-	ulong pvsNodes, qsNodes;
+	ulong nodes;
 	int ply, score;
 	bool stop;
 
 	bool checkTime(const double timeMax) const { return option.isPondering || timer.time < timeMax; }
 
 	bool abort() {
-		if ((pvsNodes & 0x3ff) == 0) {
+		if ((nodes & 0xfff) == 0) {
 			if (event) {
 				if (option.isPondering && event.has("ponderhit")) {
 					option.isPondering = false;
@@ -50,7 +50,7 @@ final class Search {
 			}
 			if (!checkTime(option.time.max)) stop = true;
 		}
-		if (pvsNodes + qsNodes >= option.nodes.max) stop = true;
+		if (nodes >= option.nodes.max) stop = true;
 		return stop;
 	}
 
@@ -59,7 +59,7 @@ final class Search {
 		if (score > Score.high) write("mate ", (Score.mate + 1 - score) / 2);
 		else if (score < -Score.high) write("mate ", -(Score.mate + score) / 2);
 		else write("cp ", score);
-		writefln(" nodes %s time %.0f nps %.0f pv %s", pvsNodes + qsNodes, 1000 * timer.time, (pvsNodes + qsNodes)  / timer.time, pv[0].toString(board));
+		writefln(" nodes %s time %.0f nps %.0f pv %s", nodes, 1000 * timer.time, (nodes)  / timer.time, pv[0].toString(board));
 	}
 
 	void update(bool quiet = true)(const Move m) {
@@ -80,11 +80,11 @@ final class Search {
 		MoveItem i = void;
 		Move m;
 
-		++qsNodes;
-		if (pvsNodes + qsNodes >= option.nodes.max) { stop = true; return α; }
+		++nodes;
+
+		if (abort()) return α;
 
 		if (board.isDraw) return 0;
-
 		
 		if (!board.inCheck) {
 			bs = eval(board);
@@ -99,7 +99,8 @@ final class Search {
 			update!false(m);
 				s = -qs(-β, -α);
 			restore(m);
-			if (s > bs && (bs = s) > α && (α = bs) >= β) return bs;
+			if (stop) break;
+			if (s > bs && (bs = s) > α && (α = bs) >= β) break;
 		}
 
 		return bs;
@@ -114,19 +115,18 @@ final class Search {
 
 		pv[ply].clear();
 
-		if (abort()) return α;
 		if (d <= 0) return qs(α, β);
 
-		++pvsNodes;
+		++nodes;
+
+		if (abort()) return α;
 
 		if (board.isDraw) return 0;
 
-		if (ply == Limits.ply.max) return α;
+		if (ply == Limits.ply.max) return eval(board);
 
 		if (ply == 0) moves = rootMoves;
 		else moves.generate(board);
-
-		const αOld = α;
 
 		while ((m = (i = moves.next).move) != 0) {
 			update(m);
@@ -148,7 +148,7 @@ final class Search {
 		return bs;
 	}
 
-	bool persist(const int d) const { return !stop && checkTime(0.7 * option.time.max) && d <= option.depth.max && pvsNodes + qsNodes < option.nodes.max; }
+	bool persist(const int d) const { return !stop && checkTime(0.7 * option.time.max) && d <= option.depth.max && nodes < option.nodes.max; }
 
 	Move bestMove() const @property { return rootMoves[0]; }
 
@@ -163,12 +163,13 @@ final class Search {
 		timer.start();
 		option = o;
 		ply = 0;
-		pvsNodes = qsNodes = 0;
+		nodes = 0;
 		stop = false;
 		if (moves.length > 0) rootMoves = moves;
 		if (rootMoves.length == 0) rootMoves.push(0);
 		else for (int d = 1; persist(d); ++d) { 
-			score = αβ(-Score.mate, Score.mate, d);
+			int s = αβ(-Score.mate, Score.mate, d);
+			if (!stop)  score = s;
 			writeUCI(d);
 		}
 	}
