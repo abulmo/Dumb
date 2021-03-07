@@ -50,7 +50,7 @@ class Uci {
 	}
 
 	void uci() const {
-		writeln("id name dumber 1.0");
+		writeln("id name dumber 1.1");
 		writeln("id author Richard Delorme");
 		writeln("option name Ponder type check default false");
 		writeln("option name UCI_Chess960 type check default false");
@@ -108,7 +108,7 @@ class Uci {
 			search.set();
 			search.go(option, moves);
 			bestmove();
-			n += search.pvsNodes + search.qsNodes;
+			n += search.nodes;
 			t += search.timer.time;
 		}
 
