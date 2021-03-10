@@ -51,10 +51,13 @@ endif
 # executable target
 EXE = dumb
 
+dumb:$(SRC)
+	$(DC) $(FFLAGS) $(OS) $(SRC)
+
 pgo:$(SRC)
 	$(MAKE) clean
 	$(DC) $(FFLAGS) $(OS) $(PGO_GEN) $(SRC)
-	$(PGO_FILE) ./$(EXE) -b 5
+	$(PGO_FILE) ./$(EXE) -b 6
 	$(PGO_MERGE)
 	$(DC) $(FFLAGS) $(OS) $(PGO_USE) $(SRC)
 
