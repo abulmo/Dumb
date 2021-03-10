@@ -33,14 +33,14 @@ class Uci {
 		canPonder = false;
 	}
 
-	double setTime() const {
+	double setTime() {
 		const p = board.player;
 		double t = time[p].remaining;
 
 		if (t > 0) {
 			const int todo = movesToGo > 0 ? movesToGo : 40;
-			t += time[p].increment * todo;
-			t = max(t - 1.0, 0.95 * t) / todo;
+			t = min(t, (t + time[p].increment * (todo - 1)) / todo);
+			t = max(t - 1.0, 0.95 * t);
 		} else {
 			t = time[p].increment;
 			t = t > 0 ? max(t - 1.0, 0.95 * t) : double.infinity;
@@ -50,7 +50,7 @@ class Uci {
 	}
 
 	void uci() const {
-		writeln("id name dumber 1.1");
+		writeln("id name dumber 1.2");
 		writeln("id author Richard Delorme");
 		writeln("option name Ponder type check default false");
 		writeln("option name UCI_Chess960 type check default false");
