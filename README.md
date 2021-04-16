@@ -12,12 +12,12 @@ Dumb is based on the following algorithms:
  - null move pruning, razoring and eval pruning, LMR, IIR
  - checking move extension (no singular move extension)
  - can do perft with bulk count and divide
- - include a basic test for the move generator and a bench(mark) to estimate search speed.
+ - include a basic bench(mark) to estimate its search speed.
 
 Strength:
 
-version 1.7
- expected about +30 vs 1.5
+version 1.8
+ - CCRL rating 40/2: 2682
 
 version 1.5
  - CCRL rating 40/2: 2585
