@@ -1,7 +1,7 @@
 /*
  * File board.d
  * Chess board representation, move generation, etc.
- * © 2017-2020 Richard Delorme
+ * © 2017-2022 Richard Delorme
  */
 
 module board;
@@ -178,7 +178,7 @@ final class Board {
 	static immutable Mask [Square.size] mask;
 	static immutable ubyte [512] ranks;
 	static immutable int [Piece.size] seeValue = [0, 1, 3, 3, 5, 9, 300];
-	static immutable ulong [Color.size] promotionRank = [rankMask[7], rankMask[0]];
+	static immutable ulong [Color.size] rank8 = [rankMask[7], rankMask[0]], rank7 = [rankMask[6], rankMask[1]];
 	static immutable int [Color.size] pushTable = [8, -8];
 	static immutable Square [2][Color.size] kingCastleTo = [[Square.g1, Square.g8], [Square.c1, Square.c8]], rookCastleTo = [[Square.f1, Square.f8], [Square.d1, Square.d8]];
 
@@ -490,11 +490,11 @@ final class Board {
 
 	CPiece opIndex(const Square x) const { return cpiece[x]; }
 
-	Key key() const @property { return stack[ply].key; }
+	Key key() const { return stack[ply].key; }
 
-	bool inCheck() const @property { return stack[ply].checkers > 0; }
+	bool inCheck() const { return stack[ply].checkers > 0; }
 
-	bool isDraw() const  @property {
+	bool isDraw() const  {
 		int nRepetition = 0;
 		const end = max(0, ply - stack[ply].fifty);
 		for (int i = ply - 4; i >= end; i -= 2) if (stack[i].key.code == stack[ply].key.code && ++nRepetition >= 2) return true;
@@ -685,15 +685,16 @@ final class Board {
 
 		attacker = piece[Piece.pawn] & pinfree;
 		attacked = (player ? (attacker & ~fileMask[0]) >> 9 : (attacker & ~fileMask[0]) << 7) & enemies;
-		generatePromotions!doQuiet(moves, attacked & promotionRank[player], left);
-		generatePawns(moves, attacked & ~promotionRank[player], left);
+		generatePromotions!doQuiet(moves, attacked & rank8[player], left);
+		generatePawns(moves, attacked & ~rank8[player], left);
 		attacked = (player ? (attacker & ~fileMask[7]) >> 7 : (attacker & ~fileMask[7]) << 9) & enemies;
-		generatePromotions!doQuiet(moves, attacked & promotionRank[player], right);
-		generatePawns(moves, attacked & ~promotionRank[player], right);
+		generatePromotions!doQuiet(moves, attacked & rank8[player], right);
+		generatePawns(moves, attacked & ~rank8[player], right);
 		attacked = (player ? attacker >> 8 : attacker << 8) & piece[Piece.none];
-		generatePromotions(moves, attacked & promotionRank[player] & empties, push);
+		generatePromotions(moves, attacked & rank8[player] & empties, push);
+		generatePawns(moves, attacked & rank7[player] & empties, push);
 		static if (doQuiet) {
-			generatePawns(moves, attacked & ~promotionRank[player] & empties, push);
+			generatePawns(moves, attacked & ~(rank8[player] | rank7[player]) & empties, push);
 			attacked = (player ? (attacked & rankMask[5]) >> 8 : (attacked & rankMask[2]) << 8) & empties;
 			generatePawns(moves, attacked, 2 * push);
 		}
