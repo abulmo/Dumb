@@ -1,7 +1,7 @@
 /*
  * File move.d
  * move, list of moves & sequence of moves.
- * © 2017-2020 Richard Delorme
+ * © 2017-2022 Richard Delorme
  */
 
 module move;
@@ -12,11 +12,11 @@ import std.stdio, std.algorithm, std.ascii, std.format, std.math, std.range, std
 /* Move */
 alias Move = ushort;
 
-Square from(const Move m) @property { return cast (Square) (m & 63); }
+Square from(const Move m) { return cast (Square) (m & 63); }
 
-Square to(const Move m) @property { return cast (Square) ((m >> 6) & 63); }
+Square to(const Move m) { return cast (Square) ((m >> 6) & 63); }
 
-Piece promotion(const Move m) @property { return cast (Piece) (m >> 12); }
+Piece promotion(const Move m) { return cast (Piece) (m >> 12); }
 
 string toPan(const Move m, const Board b) {
 	if (m.promotion) return format("%s%s%c", m.from, m.to, toChar(m.promotion));
@@ -89,7 +89,7 @@ struct Moves {
 
 	void clear() { index = n = 0; }
 
-	size_t length() const @property { return n; }
+	size_t length() const { return n; }
 
 	void generate(bool doQuiet = true)(Board board, const ref History h, const Move ttMove = 0, const Move [2] killer = [0, 0]) {
 		index = n = 0;
@@ -157,6 +157,8 @@ struct Line {
 	void push(const ref Line l) { foreach (m; l.move[0 .. l.n]) push(m); }
 
 	void set(const Move m, const ref Line l) { clear(); push(m); push(l); }
+
+	Move opIndex(const int i) const { return i < n ? move[i] : 0; }
 
 	string toString(Board b) const {
 		string s;
