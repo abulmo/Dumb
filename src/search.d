@@ -1,7 +1,7 @@
 /*
  * File search.d
  * Best move search.
- * © 2017-2020 Richard Delorme
+ * © 2017-2022 Richard Delorme
  */
 
 module search;
@@ -20,15 +20,17 @@ struct Entry {
 	Move move;
 	short value;
 
-	int depth() const @property { return info >> 2;	}
+	int depth() const { return (info >> 2) & 127; }
 
-	Bound bound() const @property { return cast (Bound) (info & 3);	}
+	int date() const { return info >> 9; }
+
+	Bound bound() const { return cast (Bound) (info & 3);	}
 
 	int score(const int ply) const { return value < Score.low ? value + ply : (value > Score.high ? value - ply : value); }
 
-	void set(const Key k, const int d, const int ply, const Bound b, const int v, const Move m) {
+	void set(const Key k, const int d, const int ply, const int date, const Bound b, const int v, const Move m) {
 		code = k.code;
-		info = cast (ushort) (b | (d << 2));
+		info = cast (ushort) (b | (d << 2) | (date << 9));
 		value = cast (short) (v < Score.low ? v - ply : (v > Score.high ? v + ply : v));
 		move = m;
 	}
@@ -37,6 +39,7 @@ struct Entry {
 /* Transposition table */
 final class TranspositionTable {
 	enum size_t bucketSize = 4;
+	ubyte date;
 	Entry [] entry;
 	size_t mask;
 
@@ -48,7 +51,12 @@ final class TranspositionTable {
 		clear();
 	}
 
-	void clear() { foreach (ref h; entry) h = Entry.init; }
+	void clear() { date = 0; foreach (ref h; entry) h = Entry.init; }
+
+	void age() {
+		if (date == 127) { date = 0; foreach (ref h; entry) h.info &= 511; }
+		++date;
+	}
 
 	bool probe(const Key k, ref Entry found) {
 		const size_t i = cast (size_t) (k.code & mask);
@@ -63,10 +71,10 @@ final class TranspositionTable {
 		const size_t i = cast (size_t) (k.code & mask);
 		Entry *w = &entry[i];
 		foreach (ref h; entry[i .. i + bucketSize]) {
-			if (h.code == k.code) return h.set(k, depth, ply, b, v, m);
+			if (h.code == k.code) return h.set(k, depth, ply, date, b, v, m);
 			else if (w.info > h.info) w = &h;
 		}
-		w.set(k, depth, ply, b, v, m);
+		w.set(k, depth, ply, date, b, v, m);
 	}
 
 	Bound bound(const int v, const int β) const { return v >= β ? Bound.lower : Bound.exact; }
@@ -74,12 +82,10 @@ final class TranspositionTable {
 
 /* Search Option */
 struct Option {
-	struct Time { double max; } 
-	struct Nodes { ulong max; }
-	struct Depth { int max; }
-	Time time;
-	Nodes nodes;
-	Depth depth;
+	struct Max(T) { T max; } 
+	Max!(double) time;
+	Max!(ulong) nodes;
+	Max!(int) depth, mate;
 	bool isPondering;
 }
 
@@ -103,8 +109,20 @@ final class Search {
 
 	this(size_t size = 64 * 1024 * 1024) {
 		tt = new TranspositionTable(size);
+		initReduction();
+	}
+
+	void initReduction() {
 		foreach (d; 1 .. 32)
-		foreach (m; 1 .. 32) reduction[d][m] = cast (ubyte) (1.1 * std.math.log(d) + 0.7 * std.math.log(m));
+		foreach (m; 1 .. 32) reduction[d][m] = cast (ubyte) (0.81 * std.math.log(d) + 1.08 * std.math.log(m));
+	}
+
+	int reduce(const int d, const int m) const { return reduction[min(d, 31)][min(m, 31)]; }
+
+	void store(Move m, const int d, const ref Moves moves) {
+		if (m != killer[ply][0]) { killer[ply][1] = killer[ply][0]; killer[ply][0] = m; }
+		history.update(board, m, d * d, history.good);
+		for (int k = 0; m != moves[k]; ++k) history.update(board, moves[k], d * d, history.bad);
 	}
 
 	bool checkTime(const double timeMax) const { return option.isPondering || timer.time < timeMax; }
@@ -127,17 +145,17 @@ final class Search {
 		return stop;
 	}
 
+	int mateIn(const int s) const { return s > Score.high ? (Score.mate + 1 - s) / 2 : (s < -Score.high ? -(Score.mate + s) / 2 : int.max); }
+
 	void writeUCI(const int d) {
 		write("info depth ", d, " score ");
-		if (score > Score.high) write("mate ", (Score.mate + 1 - score) / 2);
-		else if (score < -Score.high) write("mate ", -(Score.mate + score) / 2);
-		else write("cp ", score);
+		if (abs(score) > Score.high) write("mate ", mateIn(score));	else write("cp ", score);
 		writefln(" nodes %s time %.0f nps %.0f pv %s", pvsNodes + qsNodes, 1000 * timer.time, (pvsNodes + qsNodes)  / timer.time, pv[0].toString(board));
 	}
 
 	void update(bool quiet = true)(const Move m) {
-		board.update!quiet(m);
 		if (m) eval.update(board, m);
+		board.update!quiet(m);
 		++ply;
 	}
 
@@ -145,14 +163,6 @@ final class Search {
 		board.restore(m);
 		if (m) eval.restore();
 		--ply;
-	}
-
-	int reduce(const int d, const int m) const { return reduction[min(d, 31)][min(m, 31)]; }
-
-	void store(Move m, const int d, const ref Moves moves) {
-		if (m != killer[ply][0]) { killer[ply][1] = killer[ply][0]; killer[ply][0] = m; }
-		history.update(board, m, d * d, history.good);
-		for (int k = 0; m != moves[k]; ++k) history.update(board, moves[k], d * d, history.bad);
 	}
 
 	int qs(int α, int β) {
@@ -167,7 +177,7 @@ final class Search {
 
 		bs = ply - Score.mate;
 		s = Score.mate - ply - 1;
-		if (s < β && (β = s) <= α) return α;
+		if (s < β && (β = s) <= α) return s;
 
 		if (!board.inCheck) {
 			bs = eval(board);
@@ -190,7 +200,7 @@ final class Search {
 
 	int pvs(int α, int β, const int d) {
 		const bool isPv = (α + 1 < β);
-		int e, r, s, bs, v, IIR = 0, quiet = 0;
+		int e, r, s, bs, v, quiet = 0;
 		Moves moves = void;
 		MoveItem i = void;
 		Move m;
@@ -199,6 +209,7 @@ final class Search {
 		pv[ply].clear();
 
 		if (abort()) return α;
+
 		if (d <= 0) return qs(α, β);
 
 		++pvsNodes;
@@ -225,11 +236,11 @@ final class Search {
 		const bool suspicious = (isPv || (ply >= 2 && sv[ply] > sv[ply - 2]));
 
 		if (!tactical && !isPv) {
-			const δ = 200 * d - 100;
-			if (v >= β + δ) return β;
-			if (v <= α - δ) {
+			if (v >= β + 243 * d -124) return β;
+			const razor = α - 96 * d + 30;
+			if (v <= razor) {
 				if (d <= 2) return qs(α, β);
-				else if (qs(α - δ, α - δ + 1) <= α - δ) return α;
+				else if (qs(razor, razor + 1) <= razor) return α;
 			}
 
 			if (v >= β && (board.color[board.player] & ~(board.piece[Piece.pawn] | board.piece[Piece.king]))) {
@@ -245,12 +256,11 @@ final class Search {
 			}
 		}
 
-		IIR = (h.move == 0);
+		const bool IIR = (h.move == 0);
+		const αOld = α;
 
 		if (ply == 0) moves = rootMoves;
 		else moves.generate(board, history, h.move, killer[ply]);
-
-		const αOld = α;
 
 		while ((m = (i = moves.next).move) != 0) {
 			update(m);
@@ -287,7 +297,7 @@ final class Search {
 	}
 
 	void aspiration(const int α, const int β, const int d) {
-		int λ, υ, δ = +10;
+		int λ, υ, δ = 5;
 
 		if (d <= 4) {
 			score = pvs(α, β, d);
@@ -301,7 +311,7 @@ final class Search {
 		writeUCI(d);
 	}
 
-	bool persist(const int d) const { return !stop && checkTime(0.7 * option.time.max) && d <= option.depth.max && pvsNodes + qsNodes < option.nodes.max; }
+	bool persist(const int d, const int s) const { return !stop && checkTime(0.7 * option.time.max) && d <= option.depth.max && pvsNodes + qsNodes < option.nodes.max && mateIn(s) > option.mate.max; }
 
 	void clear() {
 		tt.clear();
@@ -311,14 +321,15 @@ final class Search {
 
 	void resize(const size_t size) { tt.resize(size); }
 
-	Move bestMove() const @property { return rootMoves[0]; }
+	Move bestMove() const { return rootMoves[0]; }
 
-	Move hint() const @property { return pv[0].n > 1 ? pv[0].move[1] : 0; }
+	Move hint() const { return pv[0][1]; }
 
 	void set() {
 		rootMoves.generate(board, history);
 		eval.set(board);
 		history.scale(8);
+		tt.age();
 	}
 
 	void go(const ref Option o, const ref Moves moves) {
@@ -327,9 +338,10 @@ final class Search {
 		ply = 0;
 		pvsNodes = qsNodes = 0;
 		stop = false;
+		score = 0;
 		if (moves.length > 0) rootMoves = moves;
 		if (rootMoves.length == 0) rootMoves.push(0);
-		else for (int d = 1; persist(d); ++d) aspiration(-Score.mate, Score.mate, d);
+		else for (int d = 1; persist(d, score); ++d) aspiration(-Score.mate, Score.mate, d);
 	}
 }
 
