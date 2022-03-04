@@ -1,7 +1,7 @@
 /*
  * File dumb.d
  * Universal Chess Interface.
- * © 2017-2020 Richard Delorme
+ * © 2017-2022 Richard Delorme
  */
 
 module dumb;
@@ -39,8 +39,8 @@ class Uci {
 
 		if (t > 0) {
 			const int todo = movesToGo > 0 ? movesToGo : 40;
-			t += time[p].increment * todo;
-			t = max(t - 1.0, 0.95 * t) / todo;
+			t = min(t, (t + time[p].increment * (todo - 1)) / todo);
+			t = max(t - 1.0, 0.95 * t);
 		} else {
 			t = time[p].increment;
 			t = t > 0 ? max(t - 1.0, 0.95 * t) : double.infinity;
@@ -50,7 +50,7 @@ class Uci {
 	}
 
 	void uci() const {
-		writeln("id name dumb 1.8");
+		writeln("id name dumb 1.9");
 		writeln("id author Richard Delorme");
 		writeln("option name Ponder type check default false");
 		writeln("option name Hash type spin default 64 min 1 max 65536");
@@ -63,7 +63,7 @@ class Uci {
 		findSkip(line, "value");
 		string value = line.strip().toLower();
 		if (name == "ponder") canPonder = to!bool(value);
-		else if (name == "hash") search.resize(to!size_t(value) * 1024 * 1024);			
+		else if (name == "hash") search.resize(to!size_t(value) * 1024 * 1024);
 		else if (name == "uci_chess960") chess960 = to!bool(value);
 	}
 
@@ -100,7 +100,7 @@ class Uci {
 			"8/5ppk/7p/N1p5/PPP1p3/7R/rr6/4K3 w - - 5 64",
 			"8/8/8/4K3/8/1pk5/8/8 b - - 1 78"
 		];
-		const Option option = { {double.max}, {ulong.max}, {depth}, false };
+		const Option option = { {double.max}, {ulong.max}, {depth}, {0}, false };
 		ulong n;
 		double t = 0.0;
 
@@ -144,7 +144,7 @@ class Uci {
 	}
 
 	void go(string line) {
-		Option option = { {double.max}, {ulong.max}, {Limits.ply.max}, false };
+		Option option = { {double.max}, {ulong.max}, {Limits.ply.max}, {0}, false };
 		isInfinite = isPondering = false;
 		string [] words = line.split();
 
@@ -162,7 +162,7 @@ class Uci {
 			else if (w == "movestogo" && i + 1 < words.length) movesToGo = to!int(words[i + 1]);
 			else if (w == "depth" && i + 1 < words.length) option.depth.max = to!int(words[i + 1]);
 			else if (w == "nodes" && i + 1 < words.length) option.nodes.max = to!ulong(words[i + 1]);
-			else if (w == "mate" && i + 1 < words.length) option.depth.max = 2 * to!int(words[i + 1]) - 1;
+			else if (w == "mate" && i + 1 < words.length) option.mate.max = to!int(words[i + 1]);
 			else if (w == "movetime" && i + 1 < words.length) time[board.player].increment = 0.001 * to!double(words[i + 1]);
 			else if (w == "infinite") { isInfinite = true; option.depth.max =  Limits.ply.max; }
 		}
@@ -202,7 +202,7 @@ void main(string [] args) {
 	Uci uci = new Uci;
 	if (args.length == 3 && (args[1] == "--bench" || args[1] == "-b")) uci.bench(to!int(args[2]));
 	else if (args.length == 3 && (args[1] == "--perft" || args[1] == "-p")) uci.perft!true(to!int(args[2]));
-	else if (args.length > 1) stderr.writeln("Usage: ", args[0], " [--bench|-b <depth>] | [--perft|-p <depth>] | []");
+	else if (args.length > 1) stderr.writeln("Usage: ", args[0], " [--bench|-b <depth>] | [--perft|-p <depth>] | [--help|-h]");
 	else uci.loop();
 }
 
