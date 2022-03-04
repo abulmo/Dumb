@@ -2,7 +2,7 @@
  * File util.d
  * Fast implementation on X86_64, portable algorithm for other platform
  * of some bit functions.
- * © 2017-2020 Richard Delorme
+ * © 2017-2022 Richard Delorme
  */
 
 module util;
@@ -39,9 +39,9 @@ final shared class Event {
 		lock = new shared Lock;
 	}
 
-	bool empty() const @property { return first == last; }
+	bool empty() const { return first == last; }
 
-	bool full() const @property { return first == (last + 1)  % ring.length; }
+	bool full() const { return first == (last + 1)  % ring.length; }
 
 	bool has(string s) const { return !empty && ring[first] == s;	}
 
