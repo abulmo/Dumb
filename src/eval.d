@@ -1,7 +1,7 @@
 /*
  * File eval.d
  * Evaluation function
- * © 2017-2020 Richard Delorme
+ * © 2017-2022 Richard Delorme
  */
 
 module eval;
@@ -115,27 +115,21 @@ struct Eval {
 		Stack *s = &stack[0];
 
 		ply = 0;
-		s.value[Color.white] = s.value[Color.black] = Value.init;
-		s.stage = 0;
+		*s = Stack.init;
 
-		foreach (x; allSquares) {
-			const Piece p = toPiece(b[x]);
-			const Color c = cast (Color) (toColor(b[x]) & 1);
-			s.value[c] += material[p] + positional[p][forward(x, c)];
-			s.stage += stageValue[p];
-		}
+		foreach (x; allSquares) if (toColor(b[x]) != Color.none) set(toPiece(b[x]), toColor(b[x]), x);
 	}
 
 	void update(const Board b, const Move m) {
-		const Color enemy = b.player;
-		const Color player = opponent(enemy);
-		const Piece p = m.promotion ? Piece.pawn : toPiece(b[m.to]);
-		const Piece v = b.stack[b.ply].victim;
+		const Color player = b.player;
+		const Color enemy = opponent(player);
+		const Piece p = toPiece(b[m.from]);
+		const Piece v = toPiece(b[m.to]);
 
 		stack[ply + 1] = stack[ply];
 		++ply;
 
-		if (b.stack[b.ply].castled) {
+		if (b.isCastling(m)) {
 			deplace(Piece.king, player, m.from, b.kingCastleTo[m.side][player]);
 			deplace(Piece.rook, player, m.to, b.rookCastleTo[m.side][player]);
 		} else {
@@ -145,7 +139,7 @@ struct Eval {
 				if (m.promotion) {
 					remove(p, player, m.to);
 					set(m.promotion, player, m.to);
-				} else if (b.stack[b.ply - 1].enpassant == m.to) {
+				} else if (b.stack[b.ply].enpassant == m.to) {
 					remove(Piece.pawn, enemy, m.to.shift);
 				}
 			}
