@@ -16,17 +16,22 @@ Dumb is based on the following algorithms:
 
 Strength:
 
+version 1.9
+ - CCRL rating 40/2: 2698
+ - CEGT rating 40/5: 2524
+  
 version 1.8
- - CCRL rating 40/2: 2682
+ - CCRL rating 40/2: 2680
+ - CEGT rating 40/5: 2516
 
 version 1.5
- - CCRL rating 40/2: 2585
+ - CCRL rating 40/2: 2592
  
 version 1.4
- - CCRL rating 40/2: 2359
- - CGET rating 40/4: 2155
+ - CCRL rating 40/2: 2357
+ - CGET rating 40/4: 2146
 
 version 1.3:
- - CCRL rating 40/2: 2272
+ - CCRL rating 40/2: 2271
  - CGET rating 40/4: 2087
  
