@@ -19,7 +19,7 @@ Square to(const Move m) { return cast (Square) ((m >> 6) & 63); }
 Piece promotion(const Move m) { return cast (Piece) (m >> 12); }
 
 string toPan(const Move m, const Board b) {
-	if (m.promotion) return format("%s%s%c", m.from, m.to, toChar(m.promotion));
+	if (m.promotion) return format("%s%s%c", m.from, m.to, std.ascii.toLower(toChar(m.promotion)));
 	else if (b.isCastling(m) && !b.chess960) return format("%s%s", m.from, m.from > m.to ? m.from.shift(-2) : m.from.shift(2));
 	else if (m) return format("%s%s", m.from, m.to);
 	else return "0000";
