@@ -148,9 +148,10 @@ final class Search {
 	int mateIn(const int s) const { return s > Score.high ? (Score.mate + 1 - s) / 2 : (s < -Score.high ? -(Score.mate + s) / 2 : int.max); }
 
 	void writeUCI(const int d) {
-		write("info depth ", d, " score ");
-		if (abs(score) > Score.high) write("mate ", mateIn(score));	else write("cp ", score);
-		writefln(" nodes %s time %.0f nps %.0f pv %s", pvsNodes + qsNodes, 1000 * timer.time, (pvsNodes + qsNodes)  / timer.time, pv[0].toString(board));
+		write("info depth ", d);
+		if (abs(score) < Score.mate) { if (abs(score) > Score.high) write(" score mate ", mateIn(score)); else write(" score cp ", score); }
+		writef(" nodes %s time %.0f nps %.0f", pvsNodes + qsNodes, 1000.0 * timer.time, (pvsNodes + qsNodes)  / timer.time);
+		if (pv[0].n > 0) writeln(" pv ", pv[0].toString(board)); else writeln(" pv ", bestMove.toPan(board));
 	}
 
 	void update(bool quiet = true)(const Move m) {
@@ -236,8 +237,8 @@ final class Search {
 		const bool suspicious = (isPv || (ply >= 2 && sv[ply] > sv[ply - 2]));
 
 		if (!tactical && !isPv) {
-			if (v >= β + 243 * d -124) return β;
-			const razor = α - 96 * d + 30;
+			if (v >= β + 243 * d - 124) return β;
+			const int razor = α - 96 * d + 30;
 			if (v <= razor) {
 				if (d <= 2) return qs(α, β);
 				else if (qs(razor, razor + 1) <= razor) return α;
@@ -248,7 +249,8 @@ final class Search {
 				update(0);
 					s = -pvs(-β, -β + 1, d - r);
 				restore(0);
-				if (!stop && s >= β) {
+				if (stop) return α; 
+				if (s >= β) {
 					if (s >= Score.high) s = β;
 					tt.store(board.key, d, ply, Bound.lower, s, h.move);
 					return s;
@@ -257,7 +259,7 @@ final class Search {
 		}
 
 		const bool IIR = (h.move == 0);
-		const αOld = α;
+		const int αOld = α;
 
 		if (ply == 0) moves = rootMoves;
 		else moves.generate(board, history, h.move, killer[ply]);
