@@ -81,7 +81,7 @@ Square popSquare(ref ulong b) { return cast (Square) popBit(b); }
 
 Square firstSquare(const ulong b) { return cast (Square) bsf(b); }
 
-/* rank/File mask */
+/* Rank/file mask */
 immutable ulong [] rankMask = [ 0x00000000000000ff, 0x000000000000ff00, 0x0000000000ff0000, 0x00000000ff000000, 0x000000ff00000000, 0x0000ff0000000000, 0x00ff000000000000, 0xff00000000000000 ];
 immutable ulong [] fileMask = [ 0x0101010101010101, 0x0202020202020202, 0x0404040404040404, 0x0808080808080808, 0x1010101010101010, 0x2020202020202020, 0x4040404040404040, 0x8080808080808080 ];
 
@@ -473,8 +473,9 @@ final class Board {
 			foreach (c; s[2]) stack[ply].castling |= toCastling(c);
 			stack[ply].castling &= piece[Piece.rook];
 		}
-		chess960 = ((stack[ply].castling & 0x7EFFFFFFFFFFFF7EUL) != 0 || (stack[ply].castling && piece[Piece.king] != 0x1000000000000010UL));
-
+		chess960  = ((stack[ply].castling & 0x7EFFFFFFFFFFFF7EUL) != 0);
+		chess960 |= ((stack[ply].castling & 0x8100000000000000UL) && xKing[Color.black] != Square.e8);
+		chess960 |= ((stack[ply].castling & 0x0000000000000081UL) && xKing[Color.white] != Square.e1);
 
 		if (s[3] != "-") {
 			stack[ply].enpassant = toSquare(s[3]);
