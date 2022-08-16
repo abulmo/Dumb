@@ -50,7 +50,7 @@ class Uci {
 	}
 
 	void uci() const {
-		writeln("id name dumb 1.10");
+		writeln("id name dumb 1.11");
 		writeln("id author Richard Delorme");
 		writeln("option name Ponder type check default false");
 		writeln("option name Hash type spin default 64 min 1 max 65536");
