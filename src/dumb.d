@@ -76,7 +76,7 @@ class Uci {
 	void position(string line) {
 		if (findSkip(line, "startpos")) board.set();
 		else if (findSkip(line, "fen")) board.set(line);
-		board.chess960 = (board.chess960 || chess960);
+		board.chess960 = chess960;
 		if (findSkip(line, "moves")) {
 			auto words = line.split();
 			foreach(w ; words) board.update(w.fromPan(board));
