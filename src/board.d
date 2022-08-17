@@ -426,6 +426,7 @@ final class Board {
 		xKing[0] = xKing[1] = Square.none;
 		player = Color.white;
 		ply = 0;
+		chess960 = false;
 	}
 
 	void set(string fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1") {
@@ -473,9 +474,6 @@ final class Board {
 			foreach (c; s[2]) stack[ply].castling |= toCastling(c);
 			stack[ply].castling &= piece[Piece.rook];
 		}
-		chess960  = ((stack[ply].castling & 0x7EFFFFFFFFFFFF7EUL) != 0);
-		chess960 |= ((stack[ply].castling & 0x8100000000000000UL) && xKing[Color.black] != Square.e8);
-		chess960 |= ((stack[ply].castling & 0x0000000000000081UL) && xKing[Color.white] != Square.e1);
 
 		if (s[3] != "-") {
 			stack[ply].enpassant = toSquare(s[3]);
