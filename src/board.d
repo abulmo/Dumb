@@ -1,7 +1,7 @@
 /*
  * File board.d
  * Chess board representation, move generation, etc.
- * © 2017-2022 Richard Delorme
+ * © 2017-2023 Richard Delorme
  */
 
 module board;
@@ -10,41 +10,65 @@ import std.ascii, std.conv, std.format, std.stdio, std.string;
 import std.algorithm, std.math, std.random, std.range;
 import core.bitop;
 
-/* limits */
+/*
+ * struct limits
+ * some limits for ply, game & move
+ */
 struct Limits {
 	enum ply { max = 100 }
-	enum game { size = 4096 }
+	enum game { size = 4_096 }
+	enum move { size = 4_096, mask = 4_095 }
 }
 
-/* Color */
+/*
+ * enum Color
+ * White & Black player's color
+ */
 enum Color : ubyte {white, black, size, none}
 
+/* Opponent's color */
 Color opponent(const Color c) { return cast (Color) !c; }
 
-Color toColor(const char c) {return cast (Color) indexOf("wb", c); }
+/* Translate a char to a color */
+Color toColor(const char c) { return cast (Color) indexOf("wb", c); }
 
-/* Piece */
+/*
+ * enum Piece
+ * The enumeration of pieces.
+ */
 enum Piece : ubyte {none, pawn, knight, bishop, rook, queen, king, size}
 
+/* Convert a char to a piece */
 Piece toPiece(const char c) { return cast (Piece) indexOf(".pnbrqk", c, CaseSensitive.no); }
 
+/* Convert a piece to a char */
 char toChar(const Piece p) { return ".PNBRQK?"[p]; }
 
-/* Colored Piece */
+/*
+ * enum CPiece
+ * The enumeration of colored Pieces
+ */
 enum CPiece : ubyte {none, _, wpawn, bpawn, wknight, bknight, wbishop, bbishop, wrook, brook, wqueen, bqueen, wking, bking, size}
 
-CPiece toCPiece(const Piece p, const Color c) {	return cast (CPiece) (2 * p + c); }
+/* Convert a Piece & Color to a CPiece */
+CPiece toCPiece(const Piece p, const Color c) { return cast (CPiece) (2 * p + c); }
 
+/* Convert a char to a CPiece */
 CPiece toCPiece(const char c) { return cast (CPiece) indexOf("._PpNnBbRrQqKk", c); }
 
+/* Get the Color of the CPiece */
 Color toColor(const CPiece p) {
 	static immutable Color[CPiece.size] c = iota(CPiece.none, CPiece.size).map!(x => x < CPiece.wpawn ? Color.none : cast (Color) (x & 1)).array;
 	return c[p];
 }
 
+/* Get the Piece of the CPiece */
 Piece toPiece(const CPiece p) { return cast (Piece) (p / 2); }
 
-/* Square */
+/*
+ * enum Square
+ * The enumeration of square coordinates
+ */
 enum Square : ubyte {
 	a1, b1, c1, d1, e1, f1, g1, h1,
 	a2, b2, c2, d2, e2, f2, g2, h2,
@@ -57,39 +81,56 @@ enum Square : ubyte {
 	size, none,
 }
 
+/* Build an array with all squares from a1 to h8 */
 auto allSquares() { return iota(Square.a1, Square.size).array; }
 
+/* Shift a coordinate by some amount */
 Square shift(const Square x, const int δ) { return cast (Square) (x + δ); }
 
-Square shift(const Square x) { return cast (Square) (x ^ 8); }
+/* Compute the enpassant coordinate */
+Square enpassant(const Square x) { return cast (Square) (x ^ 8); }
 
+/* Mirror a square for black / white pawn advance */
 Square forward(const Square x, const Color c) { return cast (Square) (x ^ (56 * c)); }
 
+/* Mirror a square */
 Square mirror(const Square x) { return cast (Square) (x ^ 56); }
 
+/* Get the rank of a square */
 int rank(const Square x) { return x >> 3; }
 
+/* Get the file of a square */
 int file(const Square x) { return x & 7; }
 
+/* Convert a square coordinate to a bitboard with 1 bit set */
 ulong toBit(const Square x) { return 1UL << x; }
 
+/* Build a square from file and rank */
 Square toSquare(const int f, const int r) {	return cast (Square) ((r << 3) + f); }
 
+/* Build a square from a string like a1, a2, ..., h8*/
 Square toSquare(string s) { return toSquare(s[0] - 'a', s[1] - '1'); }
 
+/* Get a square coordinate from a bitboard & remove it from the bitboard */
 Square popSquare(ref ulong b) { return cast (Square) popBit(b); }
 
+/* Get a square from a bitboard */
 Square firstSquare(const ulong b) { return cast (Square) bsf(b); }
 
 /* Rank/file mask */
 immutable ulong [] rankMask = [ 0x00000000000000ff, 0x000000000000ff00, 0x0000000000ff0000, 0x00000000ff000000, 0x000000ff00000000, 0x0000ff0000000000, 0x00ff000000000000, 0xff00000000000000 ];
 immutable ulong [] fileMask = [ 0x0101010101010101, 0x0202020202020202, 0x0404040404040404, 0x0808080808080808, 0x1010101010101010, 0x2020202020202020, 0x4040404040404040, 0x8080808080808080 ];
 
-/* Castling */
+/*
+ * enum Castling
+ * Castling side enumeration.
+ */
 enum Castling { kingSide, queenSide };
 
+/* get the side of a castling move */
 Castling side(const Move m) { return m.to > m.from ? Castling.kingSide : Castling.queenSide; }
 
+/* convert a char to a castle bitboard */
 ulong toCastling(const char c) {
 	with (Square) {
 		static immutable Square  [] rooks = [h1, a1, h8, a8, a1, b1, c1, d1, e1, f1, g1, h1, a8, b8, c8, d8, e8, f8, g8, h8];
@@ -98,7 +139,10 @@ ulong toCastling(const char c) {
 	}
 }
 
-/* Zobrist key */
+/*
+ * struct Key
+ * Zobrist key
+ */
 struct Key {
 	ulong code;
 
@@ -108,6 +152,7 @@ struct Key {
 	static immutable ulong [Color.size] color;
 	static immutable ulong play;
 
+	/* constructor of static data */
 	shared static this() {
 		Mt19937 r;
 		r.seed(19_937);
@@ -121,6 +166,7 @@ struct Key {
 		play = color[Color.white] ^ color[Color.black];
 	}
 
+	/* Compute a akey from a chess board */
 	void set(const Board board) {
 		const Board.Stack *s = &board.stack[board.ply];
 		code = color[board.player];
@@ -129,6 +175,7 @@ struct Key {
 		ulong rooks = s.castling; while (rooks) code ^= castling[popSquare(rooks)];
 	}
 
+	/* Update a Key after a move */
 	void update(const Board board, const Move move) {
 		Square x = Square.none;
 		const Color player = board.player;
@@ -151,8 +198,8 @@ struct Key {
 				rooks = (move.from.toBit | move.to.toBit) & board.piece[Piece.rook];
 				if (toPiece(p) == Piece.pawn) {
 					if (move.promotion) code ^= square[p][move.to] ^ square[toCPiece(move.promotion, player)][move.to];
-					else if (s.enpassant == move.to) code ^= square[toCPiece(Piece.pawn, enemy)][move.to.shift];
-					else if (abs(move.to - move.from) == 16 && (board.mask[move.to].enpassant & (board.color[enemy] & board.piece[Piece.pawn]))) x = move.to.shift;				
+					else if (s.enpassant == move.to) code ^= square[toCPiece(Piece.pawn, enemy)][move.to.enpassant];
+					else if (abs(move.to - move.from) == 16 && (board.mask[move.to].enpassant & (board.color[enemy] & board.piece[Piece.pawn]))) x = move.to.enpassant;
 				} else if (toPiece(p) == Piece.king) rooks |= board.piece[Piece.rook] & board.color[player];
 			}
 			rooks &= s.castling;
@@ -163,7 +210,10 @@ struct Key {
 }
 
 
-/* Bitmask */
+/*
+ * struct Mask
+ * a set of bitmasks
+ */
 struct Mask {
 	ulong diagonal, antidiagonal, file, rank;
 	ulong [Color.size] pawnAttack, push;
@@ -173,7 +223,10 @@ struct Mask {
 	ubyte castling;
 }
 
-/* Class board */
+/*
+ * class Board
+ * the chessboard representation
+ */
 final class Board {
 	static immutable Mask [Square.size] mask;
 	static immutable ubyte [512] ranks;
@@ -182,8 +235,8 @@ final class Board {
 	static immutable int [Color.size] pushTable = [8, -8];
 	static immutable Square [2][Color.size] kingCastleTo = [[Square.g1, Square.g8], [Square.c1, Square.c8]], rookCastleTo = [[Square.f1, Square.f8], [Square.d1, Square.d8]];
 
+	/* struct Stack to do/undo moves */
 	struct Stack {
-		ulong pins;
 		ulong checkers;
 		ulong castling;
 		Key key;
@@ -201,6 +254,7 @@ final class Board {
 	int ply, plyOffset;
 	bool chess960;
 
+	/* Constructor of static data */
 	shared static this() {
 		int b, y, z;
 		byte [Square.size] d;
@@ -261,6 +315,7 @@ final class Board {
 		}
 	}
 
+	/* Verify if castling is possible */
 	bool canCastle(const Square kingFrom, const Square rookFrom, const ulong occupancy) const {
 		const Color enemy = opponent(player);
 		const Square kingTo = kingFrom < rookFrom ? kingCastleTo[Castling.kingSide][player] : kingCastleTo[Castling.queenSide][player];
@@ -274,17 +329,20 @@ final class Board {
 		return true;
 	}
 
+	/* Verify if a move is a castling move */
 	bool isCastling(const Move m) const {
 		const CPiece f = cpiece[m.from], t = cpiece[m.to];
 		return f.toColor == t.toColor && f.toPiece == Piece.king && t.toPiece == Piece.rook;
 	}
 
+	/* Compute an attack map using hyperquintessence approach */
 	static ulong attack(const ulong occupancy, const Square x, const ulong m)  {
 		const ulong o = occupancy & m;
 		const ulong r = bswap(o);
 		return ((o - x.toBit) ^ bswap(r - x.mirror.toBit)) & m;
 	}
 
+	/* Compute an attack map along a rank */
 	static ulong rankAttack(const ulong occupancy, const Square x) {
 		const int f = x & 7;
 		const int r = x & 56;
@@ -292,13 +350,17 @@ final class Board {
 		return ulong(ranks[o * 4  + f]) << r;
 	}
 
+	/* Compute an attack map along a file */
 	static ulong fileAttack(const ulong occupancy, const Square x) { return attack(occupancy, x, mask[x].file);	}
 
+	/* Compute an attack map along a diagonal */
 	static ulong diagonalAttack(const ulong occupancy, const Square x) { return attack(occupancy, x, mask[x].diagonal);	}
 
+	/* Compute an attack map along an antidiagonal  */
 	static ulong antidiagonalAttack(const ulong occupancy, const Square x) { return attack(occupancy, x, mask[x].antidiagonal);	}
 
-	void setPinsCheckers(ref ulong checkers, ref ulong pins) {
+	/* get the checking piece squares as a bitboard */
+	void setCheckers(ref ulong checkers) {
 		const Color enemy = opponent(player);
 		const Square k = xKing[player];
 		const ulong bq = (piece[Piece.bishop] + piece[Piece.queen]) & color[enemy];
@@ -308,35 +370,14 @@ final class Board {
 		ulong b;
 		Square x;
 
-		pins = 0;
-
-		b = coverage(Piece.bishop, k, occupancy);
-		checkers = partialCheckers = b & bq;
-		b &= color[player];
-		if (b) {
-			b = attack(Piece.bishop, k, bq ^ partialCheckers, occupancy ^ b);
-			while (b) {
-				x = popSquare(b);
-				pins |= mask[k].between[x] & color[player];
-			}
-		}
-
-		b = coverage(Piece.rook, k, occupancy);
-		checkers |= partialCheckers = b & rq;
-		b &= color[player];
-		if (b) {
-			b = attack(Piece.rook, k, rq ^ partialCheckers, occupancy ^ b);
-			while (b) {
-				x = popSquare(b);
-				pins |= mask[k].between[x] & color[player];
-			}
-		}
-
+		checkers = bq & coverage(Piece.bishop, k, occupancy);
+		checkers |= rq & coverage(Piece.rook, k, occupancy);
 		checkers |= attack(Piece.knight, k, piece[Piece.knight]);
 		checkers |= attack(Piece.pawn, k, piece[Piece.pawn], occupancy, player);
 		checkers &= color[enemy];
 	}
 
+	/* Update the chessboard when a piece moves from a square to another one */
 	void deplace(const Square from, const Square to, const Piece p) {
 		const ulong M = from.toBit ^ to.toBit;
 		piece[Piece.none] ^= M;
@@ -346,6 +387,7 @@ final class Board {
 		cpiece[to] = toCPiece(p, player);
 	}
 
+	/* Update the chessboard when a Piece is captured */
 	void capture(const Piece victim, const Square x, const Color enemy) {
 		const ulong M = x.toBit;
 		piece[Piece.none] ^= M;
@@ -353,6 +395,7 @@ final class Board {
 		color[enemy] ^= M;
 	}
 
+	/* Castle */
 	void castle(const Square kingFrom, const Square kingTo, const Square rookFrom, const Square rookTo) {
 		const ulong kingMask = kingFrom.toBit ^ kingTo.toBit, rookMask = rookFrom.toBit ^ rookTo.toBit;
 		piece[Piece.none] ^= kingMask ^ rookMask;
@@ -364,6 +407,7 @@ final class Board {
 		cpiece[rookTo] = toCPiece(Piece.rook, player);
 	}
 
+	/* Verify if a square x is attacked by a piece of Color p */
 	bool isSquareAttacked(const Square x, const Color p, const ulong occupancy) const {
 		return attack(Piece.bishop, x, color[p] & (piece[Piece.bishop] | piece[Piece.queen]), occupancy)
 			|| attack(Piece.rook, x, color[p] & (piece[Piece.rook] | piece[Piece.queen]), occupancy)
@@ -372,6 +416,7 @@ final class Board {
 			|| attack(Piece.king, x, color[p] & piece[Piece.king]);
 	}
 
+	/* Generate the moves from an attack map and a source square */
 	static void generateMoves(ref Moves moves, ulong attack, const Square from) {
 		while (attack) {
 			Square to = popSquare(attack);
@@ -379,6 +424,7 @@ final class Board {
 		}
 	}
 
+	/* Generate all promotions (or only queen if doQuiet is false) */
 	static void generatePromotions(bool doQuiet = true)(ref Moves moves, ulong attack, const int dir) {
 		while (attack) {
 			Square to = popSquare(attack);
@@ -387,6 +433,7 @@ final class Board {
 		}
 	}
 
+	/* Generate pawn moves */
 	static void generatePawns(ref Moves moves, ulong attack, const int dir) {
 		while (attack) {
 			Square to = popSquare(attack);
@@ -395,6 +442,7 @@ final class Board {
 		}
 	}
 
+	/* Generate piece moves */
 	void generatePieceMoves(Piece p, ref Moves moves, ulong attacker, const ulong target) const {
 		const ulong occupancy = ~piece[Piece.none];
 
@@ -404,6 +452,7 @@ final class Board {
 		}
 	}
 
+	/* Compute an attack map that includes its own pieces */
 	static ulong coverage(Piece p, const Square x, const ulong occupancy = 0, const Color c = Color.white) {
 		final switch (p) {
 			case Piece.pawn:   return mask[x].pawnAttack[c];
@@ -416,8 +465,10 @@ final class Board {
 		}
 	}
 
+	/* Compuie an attack map, targeting empty squares and enemy pieces */
 	static ulong attack(Piece p, const Square x, const ulong target, const ulong occupancy = 0, const Color c = Color.white) { return coverage(p, x, occupancy, c) & target; }
 
+	/* Clear the chess board */
 	void clear() {
 		foreach (p; Piece.none .. Piece.size) piece[p] = 0;
 		foreach (c; Color.white .. Color.size) color[c] = 0;
@@ -429,6 +480,7 @@ final class Board {
 		chess960 = false;
 	}
 
+	/* Set the chess board according to a FEN string, by default the starting position */
 	void set(string fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1") {
 		Square x;
 		CPiece p;
@@ -481,25 +533,33 @@ final class Board {
 		}
 
 		piece[Piece.none] = ~(color[Color.white] | color[Color.black]);
-		setPinsCheckers(stack[ply].checkers, stack[ply].pins);
+		setCheckers(stack[ply].checkers);
 		stack[ply].key.set(this);
 	}
 
+	/* Constructor: set the intial position */
 	this() { set(); }
 
+	/* Get the Colored piece occuping a square using array indexing */
 	CPiece opIndex(const Square x) const { return cpiece[x]; }
 
+	/* Get a zobrist key */
 	Key key() const { return stack[ply].key; }
 
+	/* Verify if the player's king is in ckeck */
 	bool inCheck() const { return stack[ply].checkers > 0; }
 
+	/* Verify if he position is a draw according to the chess rules */
 	bool isDraw() const  {
+		// draw by 3 fold repetition
 		int nRepetition = 0;
 		const end = max(0, ply - stack[ply].fifty);
 		for (int i = ply - 4; i >= end; i -= 2) if (stack[i].key.code == stack[ply].key.code && ++nRepetition >= 2) return true;
 
+		// draw by fifty move rule (might be inaccurate ?)
 		if (stack[ply].fifty > 100) return true;
 
+		// draw by lack of mating pieces */
 		if (piece[Piece.pawn] + piece[Piece.rook] + piece[Piece.queen] == 0) {
 			const nMinor = popcnt(piece[Piece.knight] + piece[Piece.bishop]);
 			if (nMinor <= 1) return true;
@@ -512,9 +572,11 @@ final class Board {
 		return false;
 	}
 
+	/* Verify if a move is an enpassant capture */
 	bool isEnpassantCapture(const Move move) { return stack[ply].enpassant == move.to && cpiece[move.from] == toCPiece(Piece.pawn, player); }
 
-	void update(bool quiet = true)(const Move move) {
+	/* Update the chess board when a move is made, with some optimizations for quiescence search */
+	bool update(bool quiet = true)(const Move move) {
 		const to = move.to.toBit;
 		const enemy = opponent(player);
 		const p = toPiece(cpiece[move.from]);
@@ -547,11 +609,11 @@ final class Board {
 						piece[move.promotion] ^= to;
 						cpiece[move.to] = toCPiece(move.promotion, player);
 					} else if (u.enpassant == move.to) {
-						const x = move.to.shift;
-						capture(Piece.pawn, x, enemy);
+						const x = move.to.enpassant;
+						capture(Piece.pawn, x,enemy);
 						cpiece[x] = CPiece.none;
 					} else if (abs(move.to - move.from) == 16 && (mask[move.to].enpassant & (color[enemy] & piece[Piece.pawn]))) {
-						n.enpassant = move.to.shift;
+						n.enpassant = move.to.enpassant;
 					}
 				} else if (p == Piece.king) {
 					n.castling &= ~(piece[Piece.rook] & color[player]);
@@ -560,10 +622,13 @@ final class Board {
 			}
 		}		
 		player = enemy;
-		setPinsCheckers(n.checkers, n.pins);
+		setCheckers(n.checkers);
 		++ply;
+
+		return !isSquareAttacked(xKing[opponent(enemy)], enemy, ~piece[Piece.none]);
 	}
 
+	/* Restore the chess board when a move is undone */
 	void restore(const Move move) {
 		const ulong to = move.to.toBit;
 		const Color enemy = player;
@@ -588,20 +653,20 @@ final class Board {
 						piece[move.promotion] ^= to;
 						cpiece[move.from] = toCPiece(Piece.pawn, player);
 					} else if (u.enpassant == move.to) {
-						const Square x = move.to.shift;
+						const Square x = move.to.enpassant;
 						capture(Piece.pawn, x, enemy);
 						cpiece[x] = toCPiece(Piece.pawn, enemy);
 					}
-				} 
+				}
 				if (p == Piece.king) xKing[player] = move.from;
 			}
 		}
 	}
 
+	/* Generate all pseudo-legal moves. When doQuiet is false only captures and promotions are generated. */
 	void generateMoves(bool doQuiet = true)(ref Moves moves) const {
 		const Color enemy = opponent(player);
 		const ulong occupancy = ~piece[Piece.none];
-		const ulong pinfree = color[player] & ~stack[ply].pins;
 		const ulong bq = piece[Piece.bishop] | piece[Piece.queen];
 		const ulong rq = piece[Piece.rook] | piece[Piece.queen];
 		const ulong checkers = stack[ply].checkers;
@@ -609,23 +674,28 @@ final class Board {
 		const int push = pushTable[player];
 		const int left = push - 1;
 		const int right = push + 1;
-		ulong empties = piece[Piece.none] , enemies = color[enemy];
+		ulong empties = piece[Piece.none], enemies = color[enemy];
 		ulong target, attacker, o, attacked;
 		Square from, to, x;
 		int d;
 
+		// check evasion
 		if (checkers) {
+			// single check: king moves + checker capture or blocking check
 			if (hasSingleBit(checkers)) {
 				x = firstSquare(checkers);
 				empties = mask[k].between[x];
 				enemies = checkers;
-				target = enemies; static if (doQuiet) target |= empties;
+				target = enemies | empties;
 			} else {
+				// double check: king moves only
 				target = enemies = empties = 0;
 			}
 		} else {
+			// normal moves
 			target = enemies; static if (doQuiet) target |= empties;
 
+			// special case: castle
 			static if (doQuiet) {
 				ulong rooks = stack[ply].castling & color[player];
 				while (rooks) {
@@ -633,76 +703,45 @@ final class Board {
 					if (canCastle(k, x, occupancy)) moves.push(k, x);
 				}
 			}
-
-			attacker = piece[Piece.pawn] & stack[ply].pins;
-			while (attacker) {
-				from = popSquare(attacker);
-				d = mask[k].direction[from];
-				if (d == abs(left) && toColor(cpiece[to = from.shift(left)]) == enemy) {
-					if (rank(forward(from, player)) == 6) moves.pushPromotions(from, to);
-					else moves.push(from, to);
-				} else if (d == abs(right) && toColor(cpiece[to = from.shift(right)]) == enemy) {
-					if (rank(forward(from, player)) == 6) moves.pushPromotions(from, to);
-					else moves.push(from, to);
-				} else if (doQuiet && d == abs(push) && cpiece[to = from.shift(push)] == CPiece.none) {
-					moves.push(from, to);
-					if (rank(forward(from, player)) == 1 && cpiece[to = to.shift(push)] == CPiece.none) moves.push(from, to);
-				}
-			}
-
-			attacker = bq & stack[ply].pins;
-			while (attacker) {
-				from = popSquare(attacker);
-				d = mask[k].direction[from];
-				if (d == 9) generateMoves(moves, attack(Piece.bishop, from, target & mask[from].diagonal, occupancy), from);
-				else if (d == 7) generateMoves(moves, attack(Piece.bishop, from, target & mask[from].antidiagonal, occupancy), from);
-			}
-
-			attacker = rq & stack[ply].pins;
-			while (attacker) {
-				from = popSquare(attacker);
-				d = mask[k].direction[from];
-				if (d == 1) generateMoves(moves, attack(Piece.rook, from, target & mask[from].rank, occupancy), from);
-				else if (d == 8) generateMoves(moves, attack(Piece.rook, from, target & mask[from].file, occupancy), from);
-			}
 		}
 
-		if (stack[ply].enpassant != Square.none && (!checkers || x == stack[ply].enpassant.shift)) {
+		// special case: enpassant square
+		if (stack[ply].enpassant != Square.none && (!checkers || x == stack[ply].enpassant.enpassant)) {
 			to = stack[ply].enpassant;
-			x = to.shift;
-			from = cast (Square) (x - 1);
-			if (file(to) > 0 && cpiece[from] == toCPiece(Piece.pawn, player)) {
-				o = occupancy ^ (from.toBit | x.toBit | to.toBit);
-				if (!attack(Piece.bishop, k, bq & color[enemy], o) && !attack(Piece.rook, k, rq & color[enemy], o)) moves.push(from, to);
-			}
-			from = cast (Square) (x + 1);
-			if (file(to) < 7 && cpiece[from] == toCPiece(Piece.pawn, player)) {
-				o = occupancy ^ (from.toBit | x.toBit | to.toBit);
-				if (!attack(Piece.bishop, k, bq & color[enemy], o) && !attack(Piece.rook, k, rq & color[enemy], o)) moves.push(from, to);
-			}
+			x = to.enpassant;
+			from = x.shift(-1);
+			if (file(to) > 0 && cpiece[from] == toCPiece(Piece.pawn, player)) moves.push(from, to);
+			from = x.shift(+1);
+			if (file(to) < 7 && cpiece[from] == toCPiece(Piece.pawn, player)) moves.push(from, to);
 		}
 
-		attacker = piece[Piece.pawn] & pinfree;
+		// non quiet pawn moves
+		attacker = piece[Piece.pawn] & color[player];
+		// captures
 		attacked = (player ? (attacker & ~fileMask[0]) >> 9 : (attacker & ~fileMask[0]) << 7) & enemies;
 		generatePromotions!doQuiet(moves, attacked & rank8[player], left);
 		generatePawns(moves, attacked & ~rank8[player], left);
 		attacked = (player ? (attacker & ~fileMask[7]) >> 7 : (attacker & ~fileMask[7]) << 9) & enemies;
 		generatePromotions!doQuiet(moves, attacked & rank8[player], right);
 		generatePawns(moves, attacked & ~rank8[player], right);
+		// push moves on 7th rank and promotions
 		attacked = (player ? attacker >> 8 : attacker << 8) & piece[Piece.none];
 		generatePromotions(moves, attacked & rank8[player] & empties, push);
 		generatePawns(moves, attacked & rank7[player] & empties, push);
+		// quiet moves: other push moves
 		static if (doQuiet) {
 			generatePawns(moves, attacked & ~(rank8[player] | rank7[player]) & empties, push);
 			attacked = (player ? (attacked & rankMask[5]) >> 8 : (attacked & rankMask[2]) << 8) & empties;
 			generatePawns(moves, attacked, 2 * push);
 		}
 
-		generatePieceMoves(Piece.knight, moves, piece[Piece.knight] & pinfree, target); 
-		generatePieceMoves(Piece.bishop, moves, bq & pinfree, target); 
-		generatePieceMoves(Piece.rook, moves, rq & pinfree, target); 
+		// piece moves
+		generatePieceMoves(Piece.knight, moves, piece[Piece.knight] & color[player], target);
+		generatePieceMoves(Piece.bishop, moves, bq & color[player], target);
+		generatePieceMoves(Piece.rook, moves, rq & color[player], target);
 
-		target = color[enemy]; static if (doQuiet) target |= piece[Piece.none];
+		// king moves
+		target = color[enemy]; static if (doQuiet) target |= piece[Piece.none]; else if (checkers) target |= piece[Piece.none];
 		attacked = attack(Piece.king, k, target);
 		o = occupancy ^ k.toBit;
 		while (attacked) {
@@ -711,6 +750,7 @@ final class Board {
 		}
 	}
 
+	/* return the next attacker to compute the SEE */
 	Piece nextAttacker(ref ulong [Color.size] board, const Square to, const Color player, const Color enemy, const Piece last) const {
 		static immutable Piece [Piece.size] next = [Piece.none, Piece.pawn, Piece.knight, Piece.bishop, Piece.rook, Piece.bishop, Piece.size];
 		const ulong occupancy = board[player] | board[enemy];
@@ -725,6 +765,7 @@ final class Board {
 		return Piece.none;
 	}
 
+	/* static exchange evaluation (SEE): tha alphabeta version of the algorithm, both efficient & compact */
 	int see(const Move move) const {
 		const Color enemy = opponent(player);
 		ulong [Color.size] board = color;
