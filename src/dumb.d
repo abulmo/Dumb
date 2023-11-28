@@ -1,7 +1,7 @@
 /*
  * File dumb.d
- * Universal Chess Interface.
- * © 2017-2022 Richard Delorme
+ * Program start and Universal Chess Interface implementation.
+ * © 2017-2023 Richard Delorme
  */
 
 module dumb;
@@ -9,9 +9,12 @@ module dumb;
 import board, eval, move, search, util;
 import std.algorithm, std.array, std.concurrency, std.conv, std.stdio, std.string;
 
+/* a function launching the event loop */
 void eventLoop(shared Event e) { e.loop(); }
 
-/* Universal Chess Interface. */
+/*
+ * Universal Chess Interface (UCI)
+ */
 class Uci {
 	struct Time {
 		double remaining = 0.0, increment = 0.0;
@@ -25,6 +28,7 @@ class Uci {
 	ulong nodesMax;
 	bool canPonder, isPondering, isInfinite, chess960;
 
+	/* constructor */
 	this() {
 		search = new Search;
 		search.event = event = new shared Event;
@@ -33,6 +37,7 @@ class Uci {
 		canPonder = false;
 	}
 
+	/* compute the available time for the next move to search */
 	double setTime() const {
 		const p = board.player;
 		double t = time[p].remaining;
@@ -49,8 +54,9 @@ class Uci {
 		return t;
 	}
 
+	/* Response to the uci commad */
 	void uci() const {
-		writeln("id name dumb 1.11");
+		writeln("id name dumb 2.0");
 		writeln("id author Richard Delorme");
 		writeln("option name Ponder type check default false");
 		writeln("option name Hash type spin default 64 min 1 max 65536");
@@ -58,6 +64,7 @@ class Uci {
 		writeln("uciok");
 	}
 
+	/* set an option from the setoption command */
 	void setoption(string line) {
 		const name = findBetween(line.chomp(), "name", "value").strip().toLower();
 		findSkip(line, "value");
@@ -67,12 +74,14 @@ class Uci {
 		else if (name == "uci_chess960") chess960 = to!bool(value);
 	}
 
+	/* Receive the ucinewgame command to start a new game: clear Dumb's state */
 	void ucinewgame() {
 		search.clear();
 		board.set();
 		search.set();
 	}
 
+	/* Receive the position command : set a new position to search */
 	void position(string line) {
 		if (findSkip(line, "startpos")) board.set();
 		else if (findSkip(line, "fen")) board.set(line);
@@ -84,11 +93,13 @@ class Uci {
 		search.set();
 	}
 
+	/* Send the bestmove found once the search is terminated */
 	void bestmove() {
 		if (search.hint != 0 && canPonder) writeln("bestmove ", search.bestMove.toPan(board), " ponder ", search.hint.toPan(board));
 		else writeln("bestmove ", search.bestMove.toPan(board));
 	}
 
+	/* Do a small benchmark on various positions */
 	void bench(const int depth) {
 		string [] fens = [
 			"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
@@ -118,6 +129,7 @@ class Uci {
 		writeln("bench: ", n, " nodes in ", t, " s, ", cast (int) (n / t), " nps.");
 	}
 
+	/* Do a (slow) perft from the current position to test the move generator */
 	ulong perft(bool div = false)(const int depth) {
 		Moves ms = void;
 		ulong count, total;
@@ -128,13 +140,12 @@ class Uci {
 
 		ms.generateAll(board);
 
-		static if (!div) if (depth == 1) return ms.length;
-
 		while ((m = ms.next.move) != 0) {
-			board.update(m);
+			if (board.update(m)) {
 				if (depth == 1) count = 1; else count = perft(depth - 1);
 				total += count;
 				static if (div) writefln("%5s %16d", m.toPan(board), count);
+			}
 			board.restore(m);
 		}
 
@@ -143,6 +154,7 @@ class Uci {
 		return total;
 	}
 
+	/* Receive the go command : start a new search */
 	void go(string line) {
 		Option option = { {double.max}, {ulong.max}, {Limits.ply.max}, {0}, false };
 		isInfinite = isPondering = false;
@@ -173,6 +185,7 @@ class Uci {
 		if (!isInfinite && !isPondering) bestmove();
 	}
 
+	/* Loop waiting for commands */
 	void loop() {
 		spawn(&eventLoop, event);
 		while (true) {
@@ -196,7 +209,7 @@ class Uci {
 	}
 }
 
-/* main function */
+/* Main function */
 void main(string [] args) {
 	version (Windows) stdout.setvbuf(0, _IONBF); else stdout.setvbuf(4096, _IOLBF);
 	Uci uci = new Uci;
