@@ -68,6 +68,7 @@ help:
 	@echo "    make perf: build dumb for profiling"
 	@echo "    make cov: build dumb to measure code coverage"
 	@echo "    make clean: clean garbage files produced during the compilation"
+	@echo "    make help: display this message"
 	@echo "options:"
 	@echo "    DC=<gdc|ldc2|dmd> use a specific compiler (default = ldc2)"
 	@echo "    TARGET=<cpu name> target a specific compiler (default = native)"
