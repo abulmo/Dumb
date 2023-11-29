@@ -15,7 +15,8 @@ endif
 #gdc
 ifeq ($(DC),gdc)
 	COMMON = -W -Wno-uninitialized -Wall -Wextra -march=$(TARGET) -o dumb
-	FFLAGS = -O3 -frelease -fno-bounds-check -flto $(COMMON)
+	SFLAGS = -O3 -frelease -fno-bounds-check $(COMMON)
+	FFLAGS = $(SFLAGS) -flto
 	DFLAGS = -O0 -g -fdebug $(COMMON)
 	CFLAGS = $(DFLAGS) -gcov $(COMMON)
 	PFLAGS = -O1 -frelease  fno-bounds-check -march=$(TARGET $(COMMON))
@@ -27,7 +28,8 @@ endif
 
 #ldc2
 ifeq ($(DC),ldc2)
-	FFLAGS = -O3 -release -boundscheck=off -singleobj -w -dw  -flto=full -mcpu=$(TARGET) -defaultlib=phobos2-ldc-lto,druntime-ldc-lto -preview=intpromote
+	SFLAGS = -O3 -release -boundscheck=off -singleobj -w -dw -mcpu=$(TARGET)
+	FFLAGS = -O3 $(SFLAGS) -flto=full -defaultlib=phobos2-ldc-lto,druntime-ldc-lto
 	DFLAGS = -O0 -g -gc
 	CFLAGS = $(DFLAGS) -cov
 	PFLAGS = -O1 -release -boundscheck=off -flto=full -singleobj -mcpu=$(TARGET)
@@ -39,7 +41,8 @@ endif
 
 #dmd
 ifeq ($(DC),dmd)
-	FFLAGS = -O -release -inline -boundscheck=off -w -mcpu=native
+	SFLAGS = -O -release -inline -boundscheck=off -w -mcpu=native
+	FFLAGS = $SFLAGS
 	DFLAGS = -w -g -gc -debug -mcpu=native
 	CFLAGS = -O -release -boundscheck=off -cov -w -mcpu=native
 	PFLAGS = -O -release -boundscheck=off -w -mcpu=native
@@ -51,6 +54,25 @@ endif
 # executable target
 EXE = dumb
 
+# portable compilation (no flto no pgo)
+dumb:$(SRC)
+	$(DC) $(SFLAGS) $(SRC)
+
+#help 
+help:
+	@echo "Usage: make <build> <options>"
+	@echo "build:"
+	@echo "    make [dumb]: build dumb with portable optimization settings"
+	@echo "    make pgo: build dumb with full optimization settings"
+	@echo "    make debug: build dumb for debugging purpose"
+	@echo "    make perf: build dumb for profiling"
+	@echo "    make cov: build dumb to measure code coverage"
+	@echo "    make clean: clean garbage files produced during the compilation"
+	@echo "options:"
+	@echo "    DC=<gdc|ldc2|dmd> use a specific compiler (default = ldc2)"
+	@echo "    TARGET=<cpu name> target a specific compiler (default = native)"
+	
+# fully optimized compilation
 pgo:$(SRC)
 	$(MAKE) clean
 	$(DC) $(FFLAGS) $(PGO_GEN) $(SRC)
@@ -58,15 +80,20 @@ pgo:$(SRC)
 	$(PGO_MERGE)
 	$(DC) $(FFLAGS) $(PGO_USE) $(SRC)
 
+#to debug the engine
 debug:$(SRC)
 	$(DC) $(DFLAGS) $(SRC)
 
+#perf (for profiling) 
 perf:$(SRC)
 	$(DC) $(PFLAGS) $(SRC)
 
+#to measure code coverage
 cov:$(SRC)
 	$(DC) $(CFLAGS) $(SRC)
 
+#to remove garbage
 clean:
 	$(RM) *.o *.profraw *.profdata *.lst *.gcda
+
 
