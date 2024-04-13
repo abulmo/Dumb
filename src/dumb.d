@@ -1,7 +1,7 @@
 /*
  * File dumb.d
  * Program start and Universal Chess Interface implementation.
- * © 2017-2023 Richard Delorme
+ * © 2017-2024 Richard Delorme
  */
 
 module dumb;
@@ -21,7 +21,6 @@ class Uci {
 	}
 	Search search;
 	Board board;
-	Moves moves;
 	shared Event event;	
 	Time [Color.size] time;
 	int depthMax, movesToGo;
@@ -39,24 +38,22 @@ class Uci {
 
 	/* compute the available time for the next move to search */
 	double setTime() const {
-		const p = board.player;
+		const Color p = board.player;
 		double t = time[p].remaining;
+		Entry h;
 
 		if (t > 0) {
-			const int todo = movesToGo > 0 ? movesToGo : 40;
+			const bool knownPosition = (search.tt.probe(board.key, h) && h.bound == Bound.exact);
+			const int todo = movesToGo > 0 ? movesToGo : 15 + 5 * knownPosition;
 			t = min(t, (t + time[p].increment * (todo - 1)) / todo);
-			t = max(t - 1.0, 0.95 * t);
-		} else {
-			t = time[p].increment;
-			t = t > 0 ? max(t - 1.0, 0.95 * t) : double.infinity;
-		}
+		} else if ((t = time[p].increment) == 0) return double.infinity;
 
-		return t;
+		return max(t - 1.0, 0.95 * t);
 	}
 
 	/* Response to the uci commad */
 	void uci() const {
-		writeln("id name dumb 2.0");
+		writeln("id name dumb 2.1");
 		writeln("id author Richard Delorme");
 		writeln("option name Ponder type check default false");
 		writeln("option name Hash type spin default 64 min 1 max 65536");
@@ -66,9 +63,10 @@ class Uci {
 
 	/* set an option from the setoption command */
 	void setoption(string line) {
-		const name = findBetween(line.chomp(), "name", "value").strip().toLower();
+		findSkip(line,"name");
+		const name = split(line, "value")[0].strip().toLower();
 		findSkip(line, "value");
-		string value = line.strip().toLower();
+		const value = line.strip().toLower();
 		if (name == "ponder") canPonder = to!bool(value);
 		else if (name == "hash") search.resize(to!size_t(value) * 1024 * 1024);
 		else if (name == "uci_chess960") chess960 = to!bool(value);
@@ -112,44 +110,42 @@ class Uci {
 			"8/8/8/4K3/8/1pk5/8/8 b - - 1 78"
 		];
 		const Option option = { {double.max}, {ulong.max}, {depth}, {0}, false };
-		ulong n;
-		double t = 0.0;
-
-		moves.clear();
+		ulong nNodes;
+		double time = 0.0;
+		Moves moves;
 
 		foreach (fen; fens) {
 			board.set(fen);
 			search.set();
 			search.go(option, moves);
 			bestmove();
-			n += search.pvsNodes + search.qsNodes;
-			t += search.timer.time;
+			nNodes += search.pvsNodes + search.qsNodes;
+			time += search.timer.time;
 		}
 
-		writeln("bench: ", n, " nodes in ", t, " s, ", cast (int) (n / t), " nps.");
+		writeln("bench: ", nNodes, " nodes in ", time, " s, ", cast (ulong) (nNodes / time), " nps.");
 	}
 
 	/* Do a (slow) perft from the current position to test the move generator */
 	ulong perft(bool div = false)(const int depth) {
-		Moves ms = void;
 		ulong count, total;
-		Move m;
-		Chrono t = void;
+		Move move;
+		Chrono chrono = void;
 
-		static if (div) t.start();
+		static if (div) chrono.start();
 
-		ms.generateAll(board);
+		Moves moves = Moves(board);
 
-		while ((m = ms.next.move) != 0) {
-			if (board.update(m)) {
+		while ((move = moves.next.move) != 0) {
+			if (board.update(move)) {
 				if (depth == 1) count = 1; else count = perft(depth - 1);
 				total += count;
-				static if (div) writefln("%5s %16d", m.toPan(board), count);
+				static if (div) writefln("%5s %16d", move.toPan(board), count);
 			}
-			board.restore(m);
+			board.restore(move);
 		}
 
-		static if (div) writefln("perft %d: %d leaves const %.3fs (%.0f leaves/s)", depth, total, t.time(), total / t.time());
+		static if (div) writefln("perft %d: %d leaves const %.3fs (%.0f leaves/s)", depth, total, chrono.time(), total / chrono.time());
 
 		return total;
 	}
@@ -157,10 +153,10 @@ class Uci {
 	/* Receive the go command : start a new search */
 	void go(string line) {
 		Option option = { {double.max}, {ulong.max}, {Limits.ply.max}, {0}, false };
+		Moves moves;
 		isInfinite = isPondering = false;
 		string [] words = line.split();
 
-		moves.clear();
 		foreach (c ; Color.white .. Color.size) time[c] = Time.init;
 		foreach (i, ref w ; words) {
 			if (w == "searchmoves") {
