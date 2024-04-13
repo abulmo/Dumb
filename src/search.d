@@ -1,7 +1,7 @@
 /*
  * File search.d
  * Best move search.
- * © 2017-2022 Richard Delorme
+ * © 2017-2024 Richard Delorme
  */
 
 module search;
@@ -71,7 +71,7 @@ final class TranspositionTable {
 	}
 
 	/* Look for a position in the hash table, return true if one is found and fill the /found/ entry */
-	bool probe(const Key k, ref Entry found) {
+	bool probe(const Key k, ref Entry found) const {
 		const size_t i = cast (size_t) (k.code & mask);
 		foreach (ref h; entry[i .. i + bucketSize]) if (h.code == k.code) {
 			found = h;
@@ -147,10 +147,12 @@ final class Search {
 
 	/* Store the move m into various heuristics: killers, refutation move, history */
 	void store(Move m, const int d, const ref Moves moves) {
-		if (m != killer[ply][0]) { killer[ply][1] = killer[ply][0]; killer[ply][0] = m; }
-		refutation[line[ply - 1] & Limits.move.mask] = m;
-		history.update(board, m, d * d, history.good);
-		for (int k = 0; m != moves[k]; ++k) history.update(board, moves[k], d * d, history.bad);
+		if (!m.isTactical(board)) {
+			if (m != killer[ply][0]) { killer[ply][1] = killer[ply][0]; killer[ply][0] = m; }
+			if (ply > 0) refutation[line[ply - 1] & Limits.move.mask] = m;
+			history.update(board, m, d * d, history.good);
+			for (int k = 0; m != moves[k]; ++k) history.update(board, moves[k], d * d, history.bad);
+		}
 	}
 
 	/* return true if enough time is available to search */
@@ -166,7 +168,8 @@ final class Search {
 				} else if (event.has("stop")) {
 					stop = true;
 				} else if (event.has("isready")) {
-					writeln("readyok"); event.peek();
+					writeln("readyok");
+					event.peek();
 				}
 			}
 			if (!checkTime(option.time.max)) stop = true;
@@ -211,19 +214,12 @@ final class Search {
 
 		++qsNodes;
 
-		// return 0 when the position is a Draw */
-		if (board.isDraw) return 0;
-
-		// compute mate score limits based on the search ply and return a mate score if the search is useless
-		bs = ply - Score.mate;
-		s = Score.mate - ply - 1;
-		if (s < β && (β = s) <= α) return s;
-
 		// stand pat: if not in check, compute the eval as best "quiet" score, and return it if it is good enough
 		if (!board.inCheck) {
 			bs = eval(board);
 			if ((bs > α) && (α = bs) >= β) return bs;
-		}
+		// else compute mate score limits based on the search ply as best score
+		} else bs = ply - Score.mate; 
 
 		// compute the eval when the ply limit is reached
 		if (ply == Limits.ply.max) return eval(board);
@@ -231,7 +227,7 @@ final class Search {
 		// Generate all turbulent moves: capture, promotion, pawn push to 7th rank, check evasion, ...
 		moves.generate!false(board, history);
 
-		// loop over all good capture or chech evasion move
+		// loop over all good capture or check evasion move
 		while ((m = (i = moves.next).move) != 0) if (board.inCheck || i.isTactical) {
 			if (update!false(m)) s = -qs(-β, -α); else s = bs;
 			restore(m);
@@ -257,7 +253,7 @@ final class Search {
 		// Check if the search need to be stopped
 		if (abort()) return α;
 
-		// Once the search horizon is reached, call the quiescece search
+		// Once the search horizon is reached, call the quiescence search
 		if (d <= 0) return qs(α, β);
 
 		++pvsNodes;
@@ -268,7 +264,11 @@ final class Search {
 		// compute mate score limits based on the search ply and return a mate score if the search is useless
 		bs = ply - Score.mate;
 		s = Score.mate - ply - 1;
-		if (s < β && (β = s) <= α) return α;
+		if (s < β && (β = s) <= α) return s;
+
+		// Evaluate the position and return if the search ply limit is reached
+		v = sv[ply] = eval(board);
+		if (ply == Limits.ply.max) return v;
 
 		// Look at the transposition table and return a score if it is available
 		if (tt.probe(board.key, h) && !isPv) {
@@ -278,30 +278,28 @@ final class Search {
 				else if (h.bound == Bound.lower && s >= β) return s;
 				else if (h.bound == Bound.upper && s <= α) return s;
 			}
+			if ((h.bound != Bound.upper && s > v) || (h.bound != Bound.lower && s < v)) v = sv[ply] = s;
 		}
 
-		// Evaluate the position and return if the search ply limit is reached
-		v = sv[ply] = eval(board);
-		if (ply == Limits.ply.max) return v;
-
-		// Is the position tactical : in check or looking for a mate
+		// Is the position tactical: in check or looking for a mate?
 		const bool tactical = (board.inCheck || abs(v) >= Score.big || α >= Score.big || β <= -Score.big);
-		// Is the position suspicious : in the principal variation or  the static evaluation increase at this ply
+		// Is the position suspicious: in the principal variation or the static evaluation increase at this ply?
 		const bool suspicious = (isPv || (ply >= 2 && sv[ply] > sv[ply - 2]));
 
 		// Some pruning on safe position
 		if (!tactical && !isPv) {
-			// futility pruning if the Eval is very good
-			if (v >= β + 243 * d - 124) return β;
 			// razoring if the eval is very bad
-			const int razor = α - 96 * d + 30;
+			const int razor = α - 80 * d + 30;
 			if (v <= razor) {
 				if (d <= 2) return qs(α, β);
 				else if (qs(razor, razor + 1) <= razor) return α;
 			}
 
-			// Null move pruning if the position is very good
+			// Pruning if the position is very good & player still has a figure at least
 			if (v >= β && (board.color[board.player] & ~(board.piece[Piece.pawn] | board.piece[Piece.king]))) {
+				// Futility pruning
+				if (v >= β + 180 * d - 110) return β;
+				// Null move
 				r = 3 + d / 4 + min((v - β) / 128, 3);
 				update(0);
 					s = -pvs(-β, -β + 1, d - r);
@@ -329,19 +327,20 @@ final class Search {
 			if (update(m)) {
 				++nLegal; // count legal moves
 				e = board.inCheck;
-				if (moves.isFirst(m)) s = -pvs(-β, -α, d + e - 1); // first move full width
+				if (nLegal == 1) s = -pvs(-β, -α, d + e - 1); // first move full width
 				else {
 					// reduce on quiet move & position.
 					r = (i.isTactical || e || tactical) ? 0 : reduce(d, ++quiet) + IIR;
-					// reduce less on suspicious position
+					// reduce less on suspicious position or good move
 					if (r && suspicious) --r;
-					// reduce ?
+					if (r && history.isGood(board[m.to], m.to)) --r;
+					// prune ?
 					if (r && quiet > (4 + d * d) / (2 - suspicious)) s = bs;
 					// get the score from the next ply
 					else {
 						// use a null window
 						s = -pvs(-α - 1, -α, d + e - r - 1);
-						// re-search using full window on best a bestmove or exact score
+						// re-search using full window on a bestmove or an exact score
 						if ((r && s > bs) || (α < s && s < β)) s = -pvs(-β, -α, d + e - 1);
 					}
 				}
@@ -353,8 +352,8 @@ final class Search {
 			if (s > bs && (bs = s) > α) {
 				// save it as best move
 				if (ply == 0) rootMoves.setBest(m, 0);
-				else tt.store(board.key, d + e, ply, tt.bound(bs, β), bs, m);
-				if (!i.isTactical) store(m, d + e, moves);
+				tt.store(board.key, d + e, ply, tt.bound(bs, β), bs, m);
+				store(m, d + e, moves);
 				if (isPv) pv[ply].set(m, pv[ply + 1]);
 				// return on β cutoff
 				if ((α = bs) >= β) break;
@@ -391,7 +390,7 @@ final class Search {
 	}
 
 	/* condition to keep searching the next ply */
-	bool persist(const int d, const int s) const { return !stop && checkTime(0.7 * option.time.max) && d <= option.depth.max && pvsNodes + qsNodes < option.nodes.max && mateIn(s) > option.mate.max; }
+	bool persist(const int d, const int s) const { return !stop && checkTime(0.6 * option.time.max) && d <= option.depth.max && pvsNodes + qsNodes < option.nodes.max && mateIn(s) > option.mate.max; }
 
 	/* clear the search state */
 	void clear() {
