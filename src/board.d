@@ -1,7 +1,7 @@
 /*
  * File board.d
  * Chess board representation, move generation, etc.
- * © 2017-2023 Richard Delorme
+ * © 2017-2024 Richard Delorme
  */
 
 module board;
@@ -80,9 +80,6 @@ enum Square : ubyte {
 	a8, b8, c8, d8, e8, f8, g8, h8,
 	size, none,
 }
-
-/* Build an array with all squares from a1 to h8 */
-auto allSquares() { return iota(Square.a1, Square.size).array; }
 
 /* Shift a coordinate by some amount */
 Square shift(const Square x, const int δ) { return cast (Square) (x + δ); }
@@ -219,7 +216,6 @@ struct Mask {
 	ulong [Color.size] pawnAttack, push;
 	ulong enpassant, knight, king;
 	ulong [Square.size] between;
-	ubyte [Square.size] direction;
 	ubyte castling;
 }
 
@@ -257,7 +253,7 @@ final class Board {
 	/* Constructor of static data */
 	shared static this() {
 		int b, y, z;
-		byte [Square.size] d;
+		int [Square.size] d;
 		static immutable int [2][8] knightDir = [[-2,-1], [-2,1], [-1,-2], [-1,2], [1,-2], [1,2], [2,-1], [2,1]];
 		static immutable int [2][8] kingDir   = [[-1,-1], [-1,0], [-1,1], [0,-1], [0,1], [1,-1], [1,0], [1,1]];
 
@@ -265,16 +261,13 @@ final class Board {
 
 		ulong bit(int f, int r) { return (0 <= r && r <= 7 && 0 <= f && f <= 7) ? 1UL << toSquare(f, r) : 0; }
 
-		foreach (x; allSquares) {
+		foreach (x; Square.a1 .. Square.size) {
 
 			const int f = file(x), r = rank(x);
 
 			foreach (dir; kingDir)
-			foreach (k; 1 .. 8) {
-				y = square(f + k * dir[0], r + k * dir[1]);
-				if (y == Square.none) break;
-				d[y] = cast (byte) (dir[0] + 8 * dir[1]);
-				mask[x].direction[y] = abs(d[y]);
+			foreach (k; 1 .. 8) if ((y = square(f + k * dir[0], r + k * dir[1])) != Square.none) {
+				d[y] = dir[0] + 8 * dir[1];
 				for (z = x + d[y]; z != y; z += d[y]) mask[x].between[y] |= 1UL << z;
 			}
 
@@ -287,32 +280,28 @@ final class Board {
 
 			mask[x].pawnAttack[Color.white] = bit(f - 1, r + 1) | bit (f + 1, r + 1);
 			mask[x].pawnAttack[Color.black] = bit(f - 1, r - 1) | bit (f + 1, r - 1);
-			mask[x].push[Color.white] |= bit(f, r + 1);
-			mask[x].push[Color.black] |= bit(f, r - 1);
-			if (r == 3 || r == 4) {
-				if (f > 0) mask[x].enpassant |=  1UL << x - 1;
-				if (f < 7) mask[x].enpassant |=  1UL << x + 1;
-			}
+			if (r == 3 || r == 4) mask[x].enpassant =  bit(f - 1, r) | bit(f + 1, r);
+
 			foreach (dir; knightDir) mask[x].knight |= bit(f + dir[0], r + dir[1]);
 			foreach (dir; kingDir) mask[x].king   |= bit(f + dir[0], r + dir[1]);
 		}
 
-		foreach (o; 0 .. 64) {
-			foreach (k; 0 .. 8) {
-				y = 0;
-				foreach_reverse (x; 0 .. k) {
-					b = 1 << x;
-					y |= b;
-					if (((o << 1) & b) == b) break;
-				}
-				foreach (x; k + 1 .. 8) {
-					b = 1 << x;
-					y |= b;
-					if (((o << 1) & b) == b) break;
-				}
-				ranks[o * 8 + k] = cast (ubyte) y;
+		foreach (o; Square.a1 .. Square.size)
+		foreach (k; 0 .. 8) {
+			y = 0;
+			foreach_reverse (x; 0 .. k) {
+				b = 1 << x;
+				y |= b;
+				if (((o << 1) & b) == b) break;
 			}
+			foreach (x; k + 1 .. 8) {
+				b = 1 << x;
+				y |= b;
+				if (((o << 1) & b) == b) break;
+			}
+			ranks[o * 8 + k] = cast (ubyte) y;
 		}
+
 	}
 
 	/* Verify if castling is possible */
@@ -361,20 +350,14 @@ final class Board {
 
 	/* get the checking piece squares as a bitboard */
 	void setCheckers(ref ulong checkers) {
-		const Color enemy = opponent(player);
 		const Square k = xKing[player];
-		const ulong bq = (piece[Piece.bishop] + piece[Piece.queen]) & color[enemy];
-		const ulong rq = (piece[Piece.rook] + piece[Piece.queen]) & color[enemy];
 		const ulong occupancy = ~piece[Piece.none];
-		ulong partialCheckers;
-		ulong b;
-		Square x;
 
-		checkers = bq & coverage(Piece.bishop, k, occupancy);
-		checkers |= rq & coverage(Piece.rook, k, occupancy);
+		checkers = attack(Piece.bishop, k, piece[Piece.bishop] + piece[Piece.queen], occupancy);
+		checkers |= attack(Piece.rook, k, piece[Piece.rook] + piece[Piece.queen], occupancy);
 		checkers |= attack(Piece.knight, k, piece[Piece.knight]);
 		checkers |= attack(Piece.pawn, k, piece[Piece.pawn], occupancy, player);
-		checkers &= color[enemy];
+		checkers &= color[opponent(player)];
 	}
 
 	/* Update the chessboard when a piece moves from a square to another one */
@@ -472,7 +455,7 @@ final class Board {
 	void clear() {
 		foreach (p; Piece.none .. Piece.size) piece[p] = 0;
 		foreach (c; Color.white .. Color.size) color[c] = 0;
-		foreach (x; allSquares) cpiece[x] = CPiece.none;
+		foreach (x; Square.a1 .. Square.size) cpiece[x] = CPiece.none;
 		stack[0] = Stack.init;
 		xKing[0] = xKing[1] = Square.none;
 		player = Color.white;
@@ -573,7 +556,7 @@ final class Board {
 	}
 
 	/* Verify if a move is an enpassant capture */
-	bool isEnpassantCapture(const Move move) { return stack[ply].enpassant == move.to && cpiece[move.from] == toCPiece(Piece.pawn, player); }
+	bool isEnpassantCapture(const Move move) const { return stack[ply].enpassant == move.to && cpiece[move.from] == toCPiece(Piece.pawn, player); }
 
 	/* Update the chess board when a move is made, with some optimizations for quiescence search */
 	bool update(bool quiet = true)(const Move move) {
@@ -706,7 +689,7 @@ final class Board {
 		}
 
 		// special case: enpassant square
-		if (stack[ply].enpassant != Square.none && (!checkers || x == stack[ply].enpassant.enpassant)) {
+		if (stack[ply].enpassant != Square.none) {
 			to = stack[ply].enpassant;
 			x = to.enpassant;
 			from = x.shift(-1);
