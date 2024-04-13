@@ -6,7 +6,7 @@ Dumb is based on the following algorithms:
  - Bitboard/mailbox pseudo-legal move generator based on hyperbola quintessence
  - PVS/negascout search with aspiration windows
  - simple quiescence search with see pruning
- - simple 4-bucket hash table (no ageing)
+ - simple 4-bucket hash table (with ageing)
  - simple evaluation function with knowledge limited to material, positional and tempo (no pawn structure, mobility, king safety, imbalance, trapped pieces, ...) tuned to probably suboptimal coefficients.
  - simple (insertion) move sorting: hash move + mvvlva ordered good capture/promotions + killer moves + quiet moves (with history) + bad captures
  - null move pruning, razoring and eval pruning, LMR, IIR
