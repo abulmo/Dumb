@@ -1,5 +1,5 @@
 #
-# Makefile to compile dumb
+# Makefile to compile Dumb
 #
 
 SRC = dumb.d util.d board.d eval.d move.d search.d
@@ -29,7 +29,7 @@ endif
 #ldc2
 ifeq ($(DC),ldc2)
 	SFLAGS = -O3 -release -boundscheck=off -singleobj -w -dw -mcpu=$(TARGET)
-	FFLAGS = -O3 $(SFLAGS) -flto=full -defaultlib=phobos2-ldc-lto,druntime-ldc-lto
+	FFLAGS = $(SFLAGS) -flto=full -defaultlib=phobos2-ldc-lto,druntime-ldc-lto
 	DFLAGS = -O0 -g -gc
 	CFLAGS = $(DFLAGS) -cov
 	PFLAGS = -O1 -release -boundscheck=off -flto=full -singleobj -mcpu=$(TARGET)
