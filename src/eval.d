@@ -1,7 +1,7 @@
 /*
  * File eval.d
  * Evaluation function
- * © 2017-2023 Richard Delorme
+ * © 2017-2024 Richard Delorme
  */
 
 module eval;
@@ -129,7 +129,7 @@ struct Eval {
 		ply = 0;
 		*s = Stack.init;
 
-		foreach (x; allSquares) if (toColor(b[x]) != Color.none) set(toPiece(b[x]), toColor(b[x]), x);
+		foreach (x; Square.a1 .. Square.size) if (toColor(b[x]) != Color.none) set(toPiece(b[x]), toColor(b[x]), x);
 	}
 
 	/* Update the evaluation state when a move is done */
