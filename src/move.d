@@ -1,7 +1,7 @@
 /*
  * File move.d
  * Move, list of moves & sequence of moves.
- * © 2017-2023 Richard Delorme
+ * © 2017-2024 Richard Delorme
  */
 
 module move;
@@ -46,6 +46,13 @@ Move fromPan(string s, const Board b) {
 	return cast (Move) (from | to << 6 | promotion << 12);
 }
 
+/* Move is a capture or a promotion */
+bool isTactical(Move move, const Board board) {
+	return board[move.to] > CPiece.none // capture
+	|| (toPiece(board[move.from]) == Piece.pawn && (forward(move.to, board.player).rank >= 6) // move to 7th rank or promote
+	|| board.isEnpassantCapture(move)); // en passant capture
+}
+
 /* Various bonus for move sorting */
 enum Bonus : short { tt = 10_000, killer = 10, pushOn7thRank = 12, history = 16_384, badCapture = -32_768 }
 
@@ -75,7 +82,11 @@ struct History {
 		if (good[p][to] + bad[p][to] == 0) return -Bonus.history / 2;
 		else return cast (short) ((good[p][to] * Bonus.history) / (good[p][to] + bad[p][to]) - Bonus.history);
 	}
+
+	/* return if the move is good */
+	bool isGood(const CPiece p, const Square to) const { return good[p][to] > bad[p][to]; }
 }
+
 
 /*
  * struct MoveItem
@@ -104,25 +115,24 @@ void insertionSort(MoveItem [] items) {
  * An array of moves
  */
 struct Moves {
-	enum size = 256;
-	MoveItem [size] item;	
-	size_t index, n;
+	MoveItem [256] item;
+	size_t index, length;
 	
 	static immutable short [Piece.size] vPiece = [0, 1, 2, 3, 4, 5, 6];
 	static immutable short [Piece.size] vPromotion = [0, 0, 48, 16, 32, 64, 0];
 	static immutable short [Piece.size] vCapture = [0, 256, 512, 768, 1024, 1280, 1536];
 
-	/* clear the array */
-	void clear() { index = n = 0; }
-
-	/* Rethurn the length or size of the array */
-	size_t length() const { return n; }
+	/* constructor: generate all the pseudo-legal moves */
+	this(Board board) {
+		board.generateMoves!true(this);
+		item[length] = MoveItem.init;
+	}
 
 	/* Generate & sort the moves */
-	void generate(bool doQuiet = true)(Board board, const ref History h, const Move ttMove = 0, const Move [2] killer = [0, 0], const Move refutation = 0) {
-		index = n = 0;
+	void generate(bool doQuiet = true)(const Board board, const ref History h, const Move ttMove = 0, const Move [2] killer = [0, 0], const Move refutation = 0) {
+		index = length = 0;
 		board.generateMoves!doQuiet(this);
-		foreach (ref i; item[0 .. n]) {
+		foreach (ref i; item[0 .. length]) {
 			if (i.move == ttMove) i.bonus = Bonus.tt;
 			else {
 				const p = toPiece(board[i.move.from]);
@@ -137,23 +147,16 @@ struct Moves {
 				else i.bonus = h.bonus(board[i.move.from], i.move.to);
 			}
 		}
-		insertionSort(item[0 .. n]);
-		item[n] = MoveItem.init;
+		insertionSort(item[0 .. length]);
+		item[length] = MoveItem.init;
 	}
 	
-	/* generate all the moves */
-	void generateAll(Board board) {
-		index = n = 0;
-		board.generateMoves!true(this);
-		item[n] = MoveItem.init;
-	}
-
 	/* return the next move */
 	ref MoveItem next() return { return item[index++]; }
 
 	/* set the move as best, inserting it at the top of the move array */
 	void setBest(const Move m, const size_t i = 0) {
-		foreach (j; 0 .. n) if (m == item[j].move) {
+		foreach (j; 0 .. length) if (m == item[j].move) {
 			const MoveItem tmp = item[j];
 			foreach_reverse (k; i .. j) item[k + 1] = item[k];
 			item[i] = tmp;
@@ -161,7 +164,7 @@ struct Moves {
 	}
 
 	/* Add a move to the move array */
-	void push(const Move m) { item[n++].move = m; }
+	void push(const Move m) { item[length++].move = m; }
 
 	/* Add a move as from & to squares */
 	void push(const Square from, const Square to) { push(from | to << 6); }
@@ -171,16 +174,13 @@ struct Moves {
 		push(from | to << 6 | Piece.queen << 12);
 		static if (doQuiet) {
 			push(from | to << 6 | Piece.knight << 12);
-			push(from | to << 6 | Piece.rook << 12);
+			push(from | to << 6 | Piece.rook   << 12);
 			push(from | to << 6 | Piece.bishop << 12);
 		}
 	}
 
 	/* return a move from its index using the moves[i] notation */
 	Move opIndex(const size_t i) const { return item[i].move; }
-	
-	/* Check if a move is the first (ie the best) one */
-	bool isFirst(const Move m) const { return m == item[0].move; }
 }
 
 /*
