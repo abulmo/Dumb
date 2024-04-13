@@ -1,50 +1,68 @@
 /*
  * File util.d
- * Fast implementation on X86_64, portable algorithm for other platform
- * of some bit functions.
- * © 2017-2022 Richard Delorme
+ * Miscellaneous utilities
+ *
+ * © 2017-2024 Richard Delorme
  */
 
 module util;
 import std.stdio, std.array, std.string, std.datetime, std.format;
 import core.bitop, core.time, core.thread, core.simd;
 
-/* bit utilities */
+/*
+ * bit utilities
+ */
+/* Check if a number has a single bit set, ie is a power of 2 */
 bool hasSingleBit(const ulong b) { return (b & (b - 1)) == 0; }
 
+/* Remove a bit from a number and return its index */
 int popBit(ref ulong b) {
 	const int i = bsf(b);
 	b &= b - 1;
 	return i;
 }
 
-/* struct Chrono */
+/*
+ * struct Chrono
+ * A simple chronometer
+ */
 struct Chrono {
-	TickDuration tick;
+	MonoTime clock;
 
-	void start() { tick = TickDuration.currSystemTick(); }
+	/* start the chronometer */
+	void start() { clock = MonoTime.currTime; }
 
-	double time() const { return 1e-7 * (TickDuration.currSystemTick() - tick).hnsecs; }
+	/* return the time elapsed in seconds */
+	double time() const { return 1e-7 * (MonoTime.currTime - clock).total!"hnsecs"; }
 }
 
-/* class Event */
+/*
+ * class Event
+ * A simple event management class.
+ * An event is a string read from stdin.
+ */
 final shared class Event {
 	string [] ring;
 	size_t first, last;
 	class Lock {}
 	Lock lock;
 
+	/* constructor */
 	this () {
 		ring.length = 4;
 		lock = new shared Lock;
 	}
 
+	/* Return true if there is no waiting event */
 	bool empty() const { return first == last; }
 
+	/* Return true if the event storage is full */
 	bool full() const { return first == (last + 1)  % ring.length; }
 
+	/* Return true if there is at least one waiting event matching the input string */
 	bool has(string s) const { return !empty && ring[first] == s;	}
 
+	/* Queue a new event into the storage */
 	void push(string s) {
 		synchronized (lock) {
 			if (full) {
@@ -58,6 +76,7 @@ final shared class Event {
 		}
 	}
 
+	/* Remove the oldest ushed event and return it */
 	string peek() {
 		synchronized (lock) {
 			string s;
@@ -70,11 +89,13 @@ final shared class Event {
 		}
 	}
 
+	/* Wait until an event is available */
 	string wait() {
 		while (empty) Thread.sleep(1.msecs);
 		return peek();
 	}
 
+	/* Infinitely read events from stdin until "quit" is received */
 	void loop() {
 		string line;
 		do {
@@ -83,16 +104,5 @@ final shared class Event {
 			push(line);
 		} while (line != "quit");
 	}
-}
-
-/* Miscellaneous utilities */
-string findBetween(string s, string start, string end) {
-	size_t i, j;
-
-	for (; i < s.length - start.length; ++i) if (s[i .. i + start.length] == start) break;
-	i += start.length;
-	for (j = i; j < s.length - end.length; ++j) if (s[j .. j + end.length] == end) return s[i .. j];
-
-	return s[i .. $];
 }
 
