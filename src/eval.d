@@ -1,173 +1,305 @@
-/*
+/**
  * File eval.d
- * Evaluation function
- * © 2017-2024 Richard Delorme
+ *
+ * The evaluation function.
+ *
+ * The evaluation function statically evaluate the value of a position.
+ * In Dumb, the evaluation function is intentionally very simple, hence the name of the engine.
+ * It is based on material value and a positional square table, often abbreviated as PSQT.
+ * However, these values have been optimized and already work pretty well. Also, to smooth the
+ * transition between the opening and the endgame, two sets of values are used and the current
+ * evaluation is interpolated according to the phase of the game (tapered evaluation function).
+ * To Increase the speed of the static evaluation, the evaluation is updated after each move and
+ * stored into a stack of FIFO type (First In, First Out). After a move is undone, the previous
+ * value is retrieved by decreasing the index to the stack. This index is just the ply number of
+ * the game.
+ *
+ * Authors: Richard Delorme
+ * Date: 2025
  */
 
 module eval;
 
 import board, move, util;
-import std.algorithm, std.range, std.stdio;
+import std.algorithm, std.format, std.range, std.stdio;
 
-enum Score {mate = 30_000, low = -29_000, high = 29_000, big = 3_000}
+@safe:
 
-/*
- * struct Value
- * A pair of opening / endgame evaluation score
+/**
+ * enum Score: Constant values for mate, low/high score.
+ */
+enum Score {mate = 30_000, low = -29_000, high = 29_000}
+
+/**
+ * struct Value: A pair of opening/endgame value.
+ * TODO: use a SWAR technique to speed up the evaluation?
  */
 struct Value {
-	int opening;
-	int endgame;
+	int opening; /// opening value
+	int endgame; /// endgame value
 
-	/* binary operator (a+b, a-b,n etc.) */
-	Value opBinary(string op)(const Value s) const {
-		Value r = { mixin("opening " ~ op ~ " s.opening"), mixin("endgame " ~ op ~ " s.endgame") };
-		return r;
+	/**
+	 * Operator overloading to add/sub/multiply/... the opening and the endgame
+	 * part of the value struct.
+	 *
+	 * params: value input value
+	 * returns: (this) 'op' v
+	 */
+	Value opBinary(string op)(const Value value) pure nothrow const {
+		Value result = { mixin("opening " ~ op ~ " value.opening"), mixin("endgame " ~ op ~ " value.endgame") };
+		return result;
 	}
 
-	/* operator assign operator (a += b, a-=b,n etc.) */
-	void opOpAssign(string op)(const Value s) {
-		mixin("opening " ~ op ~ "= s.opening;");
-		mixin("endgame " ~ op ~ "= s.endgame;");
+	/**
+	 * Assign operator overloading to add/sub/multiply/... the opening and the endgame
+	 * part of the value struct.
+	 *
+	 * (this) 'op'= v
+	 *
+	 * params: value input value
+	 */
+	void opOpAssign(string op)(const Value value) pure nothrow {
+		mixin("opening " ~ op ~ "= value.opening;");
+		mixin("endgame " ~ op ~ "= value.endgame;");
 	}
 }
 
-/*
- * stuct Eval
- * A simple but fast evaluation function based on a Material table and a Positional Square Table (PST)
+/**
+ * struct Eval: A simple but fast evaluation function based on a Material table and a Positional Square Table (PSQT).
  */
 struct Eval {
+	/// Stack: to keep the evaluation of each ply of the game
 	struct Stack {
-		Value [Color.size] value;
-		int stage;
+		Value [Color.size] value; /// evaluation for each player
+		int stage; /// Game stage: 64 = opening -> 0 = endgame (no pieces except pawns on board).
 	}
-	static immutable int [Piece.size] stageValue = [0, 0, 3, 3, 5, 10, 0];
-	static immutable Value [Piece.size] material = [{  +0,   +0}, { +40, +100}, {+285, +241}, {+302, +269}, {+338, +510}, {+897, +840}, {  +0,   +0}, ];
+	static immutable int [Piece.size] stageValue = [0, 0, 3, 3, 5, 10, 0]; /// Stage value for each piece. Note: (3×2 + 3×2 + 5×2 + 10)×2 = 64
+	
+	/// Pieces value. By convention, a pawn in endgame = 100.
+	static immutable Value [Piece.size] material = [ {  +0,   +0},
+		{ +42, +100}, // pawn value: endgame pawn = 100 by convention
+		{+236, +218}, // knight
+		{+267, +241}, // bishop
+		{+331, +441}, // rook
+		{+778, +746}, // queen
+		{  +0,   +0}, // king
+	];
+	/// Positional Square Table (PST or PSQT)
 	static immutable Value [Square.size][Piece.size] positional = [
 		// none
 		[],
 		// pawn
 		[{  +0,   +0}, {  +0,   +0}, {  +0,   +0}, {  +0,   +0}, {  +0,   +0}, {  +0,   +0}, {  +0,   +0}, {  +0,   +0},
-		 {  +2,   -2}, {  -2,   +4}, { -12,   +4}, { -13,   +7}, { -10,   -2}, { +15,   -1}, { +23,   +0}, {  -8,   -4},
-		 {  +1,   -2}, {  +2,   -2}, { -11,   -8}, {  +0,   +0}, {  -1,   -5}, {  +2,   -5}, { +23,   -3}, {  +0,   -6},
-		 {  +2,   +6}, {  +1,   +3}, {  +2,   -9}, {  +5,  -11}, { +13,  -10}, { +12,   -5}, { +27,   +5}, {  -3,   -1},
-		 { +13,  +21}, { +17,  +15}, {  +6,  +14}, { +17,   +0}, { +30,   +0}, { +34,   -5}, { +31,  +12}, {  +1,   +8},
-		 { +42,  +45}, { +44,  +59}, { +57,  +46}, { +70,  +44}, { +81,  +30}, { +79,  +26}, { +89,  +36}, { +35,  +33},
-		 {+188,  +73}, {+190,  +76}, {+220,  +70}, {+211,  +50}, {+204,  +50}, {+155,  +60}, { +64,  +84}, { +60,  +69},
+		 {  +0,   -6}, {  -1,   +7}, {  -6,   -3}, { -14,   +5}, { -10,  +11}, { +18,   -9}, { +21,   +1}, {  -6,  -12},
+		 {  -3,   -6}, {  +3,   +0}, {  -5,   -7}, {  -1,  -12}, {  +0,   -7}, { +13,  -17}, { +22,   -5}, {  +5,  -15},
+		 {  +0,   -6}, {  +7,   +3}, {  +3,  -12}, { +10,  -16}, { +12,  -17}, { +14,  -17}, { +13,   -6}, {  +0,   -9},
+		 {  +9,   +7}, { +18,  +13}, { +10,   +3}, { +18,   -3}, { +30,  -11}, { +26,  -11}, { +17,   +3}, {  -3,   +5},
+		 { +40,  +17}, { +48,  +27}, { +50,  +18}, { +58,  +19}, { +65,  +11}, { +69,   +4}, { +41,  +28}, { +21,  +17},
+		 {+155,  +70}, {+162,  +71}, {+143,  +69}, {+161,  +51}, {+147,  +51}, {+122,  +73}, { +97,  +82}, { +70,  +77},
 		 {  +0,   +0}, {  +0,   +0}, {  +0,   +0}, {  +0,   +0}, {  +0,   +0}, {  +0,   +0}, {  +0,   +0}, {  +0,   +0}, ],
 		// knight
-		[{ -73,  -86}, { -46,  -37}, { -70,  -25}, { -69,  -16}, { -42,  -26}, { -36,  -48}, { -40,  -46}, {-110,  -61},
-		 { -76,  -46}, { -73,   +2}, { -51,   -7}, { -29,   +2}, { -32,   -3}, { -26,  -14}, { -50,   -5}, { -19,  -48},
-		 { -60,  -36}, { -36,   -1}, { -28,  +17}, {  -2,  +28}, {  -6,  +28}, { -19,  +11}, { -19,   +0}, { -34,  -39},
-		 { -36,   +3}, { -12,  +22}, {  -5,  +44}, {  -7,  +44}, {  +6,  +46}, {  +8,  +39}, { +28,  +20}, {  +0,  -14},
-		 { -30,   +9}, { -23,  +29}, { +15,  +44}, { +30,  +45}, { +17,  +59}, { +58,  +36}, {  -2,  +39}, {  +9,  +11},
-		 { -29,   +7}, { -19,  +30}, { +16,  +42}, { +58,  +33}, {+107,   +5}, { +83,  +11}, { +34,  +24}, { +10,   +5},
-		 { -60,   +3}, { -26,  +25}, { +10,  +19}, { +69,   +9}, { +47,  +12}, { +72,   +1}, { +12,   +2}, { -20,  -15},
-		 {-194,  -14}, {+117,  -50}, { +53,   -6}, {+101,  -22}, {+171,  -43}, {+184,  -51}, {+247,  -56}, { -94,  -46}, ],
+		[{ -45,  -75}, { -17,  -39}, { -34,  -18}, { -34,   -4}, { -25,  -13}, { -22,  -25}, { -21,  -36}, { -79,  -52},
+		 { -58,  -30}, { -36,   -8}, { -19,   +1}, {  -6,   +0}, {  -7,   +3}, {  -3,   -6}, { -31,   -8}, { -20,  -38},
+		 { -37,  -22}, {  -9,   +8}, {  -4,  +19}, {  +9,  +22}, {  +8,  +20}, {  +1,  +13}, {  +5,   +3}, { -23,  -22},
+		 { -12,   +1}, {  +7,  +11}, { +19,  +30}, { +12,  +41}, { +24,  +32}, { +18,  +35}, {  +9,  +12}, {  +1,   -7},
+		 {  +0,   +5}, {  -1,  +23}, { +34,  +29}, { +39,  +34}, { +25,  +37}, { +39,  +35}, { +16,  +27}, { +13,   +6},
+		 {  -5,   +0}, { +19,  +10}, { +39,  +18}, { +68,  +14}, { +92,   +6}, { +56,  +19}, { +45,   +5}, {  +0,   +2},
+		 { -34,   -6}, {  +0,   +6}, { +26,  +12}, { +51,   +4}, { +43,   +1}, { +55,   -3}, {  -1,   +4}, { +11,  -11},
+		 {-157,  -26}, { +39,  -23}, { +49,  -24}, { +80,  -27}, { +43,  -15}, { -17,   -1}, {-141,   -6}, { -97,  -24}, ],
 		// bishop
-		[{ -21,  -35}, {  -9,  -27}, { -28,  -36}, { -43,  -10}, { -35,  -15}, { -33,  -29}, { -29,  -27}, { -34,  -42},
-		 {  +1,  -28}, { -11,  -22}, {  +5,  -15}, { -21,   +1}, { -17,   -3}, { -14,  -16}, {  +0,  -18}, {  +5,  -47},
-		 { -17,  -15}, {  -5,   +0}, {  +1,   +9}, {  +2,   +9}, { -10,  +16}, {  +0,   +5}, {  +2,  -13}, {  -8,  -19},
-		 { -33,   -1}, {  -8,  +20}, {  -7,  +15}, { +18,  +22}, { +20,  +19}, {  -6,  +19}, {  +4,   -2}, { -10,  -16},
-		 { -22,   +4}, { -20,  +25}, { +14,  +15}, { +34,  +20}, { +31,  +22}, { +39,   -1}, { -16,  +21}, { -14,   +1},
-		 { -22,  +13}, {  -8,  +27}, {  +9,  +22}, { +46,   +6}, { +52,   -1}, { +67,  +12}, { +53,   +5}, { +36,  -10},
-		 { -72,  +27}, { -15,  +27}, {  -3,  +15}, {  -1,  +16}, {  -6,  +18}, { +11,   +2}, { -24,  +29}, { -52,   +4},
-		 { -27,  +12}, { +26,   +5}, { +23,   +8}, { +31,  +20}, {  -8,  +13}, { +20,   -6}, {+126,  -36}, { +33,  -13}, ],
+		[{ -24,  -36}, { -13,  -21}, { -24,  -27}, { -36,   -2}, { -30,  -10}, { -33,  -19}, { -19,  -10}, { -46,  -33},
+		 {  -9,  -25}, { -13,   -8}, {  -6,   -6}, { -19,   +8}, { -14,   +7}, {  -5,   -5}, {  +1,  -14}, { -17,  -36},
+		 { -16,   -5}, {  -3,   -2}, {  -4,   +9}, {  -1,  +11}, {  -9,  +19}, {  -3,   +7}, {  -4,   -2}, {  -8,  -10},
+		 { -14,   -2}, {  -4,   +6}, {  -1,  +20}, { +13,  +17}, { +19,  +13}, {  -7,  +23}, {  +4,   +7}, {  -7,   -5},
+		 {  -3,   -1}, {  -9,  +22}, { +18,  +11}, { +37,  +12}, { +26,  +21}, { +31,  +10}, { -11,  +26}, {  -5,   +6},
+		 {  +3,   +2}, { +15,   +1}, { +18,   +8}, { +41,   +9}, { +52,   +6}, { +55,   +4}, { +21,   +3}, { +21,   +4},
+		 { -39,   -8}, {  -5,   +3}, {  +8,   +6}, { +19,   +7}, { +16,   +6}, {  +4,   +7}, {  -7,   +9}, { -36,   +2},
+		 { -29,   +5}, {  +0,   +0}, {  +7,   -2}, { +33,  -11}, { +31,   -7}, { +28,   -9}, { -35,   +5}, { +12,   -8}, ],
 		// rook
-		[{ -36,  -21}, { -32,  -14}, { -30,   -7}, { -26,   -3}, { -20,  -11}, { -23,  -12}, { -17,  -16}, { -34,  -24},
-		 { -56,  -20}, { -35,  -20}, { -34,  -20}, { -37,  -17}, { -28,  -23}, { -31,  -20}, { -29,  -18}, { -21,  -31},
-		 { -58,  -14}, { -48,   -6}, { -40,  -11}, { -54,   -5}, { -43,  -10}, { -44,  -11}, { -21,  -15}, { -33,  -32},
-		 { -53,   +3}, { -53,  +11}, { -29,   +6}, { -22,   +3}, { -25,   +5}, { -32,   +2}, { -15,   -5}, { -36,  -15},
-		 { -34,  +21}, { -24,  +19}, {  +4,  +15}, { +10,  +18}, { +20,  +12}, {  -3,  +13}, { +23,   +1}, { +12,   -9},
-		 {  -7,  +25}, {  +7,  +18}, { +28,  +16}, { +59,   +8}, { +87,   -1}, { +75,   -3}, { +51,   -4}, { +43,   -1},
-		 {  -3,  +28}, {  -5,  +30}, { +26,  +25}, { +58,  +21}, { +46,  +21}, { +63,   +9}, { +25,  +18}, { +60,   +1},
-		 { +46,   +6}, { +52,   +8}, { +57,   +9}, { +58,  +13}, { +39,  +22}, { +45,  +11}, {+121,  -18}, { +63,   +0}, ],
+		[{ -28,  -11}, { -22,   -8}, { -23,   -1}, { -24,   -1}, { -19,   -4}, { -20,   -7}, { -16,  -12}, { -34,  -15},
+		 { -44,  -15}, { -44,   -5}, { -40,   -1}, { -38,   -1}, { -37,   -4}, { -34,   -2}, { -27,   -2}, { -39,   -1},
+		 { -48,   -4}, { -38,   -3}, { -42,   +4}, { -41,   +5}, { -39,   +3}, { -40,   +5}, { -25,   -3}, { -34,   -5},
+		 { -27,   -6}, { -35,   +3}, { -29,   +9}, { -20,   +8}, { -14,   +2}, { -25,   +8}, {  -7,   -2}, { -15,   -9},
+		 {  -1,   +0}, {  -3,   +8}, {  +7,  +11}, { +15,  +10}, { +11,  +11}, { +16,   +6}, {  +8,   +1}, {  +3,   -2},
+		 { +18,   +4}, { +23,   +6}, { +31,  +10}, { +48,   +6}, { +60,   +1}, { +49,   +2}, { +39,   +0}, { +21,   +2},
+		 { +17,   +8}, { +10,  +13}, { +41,   +9}, { +54,   +5}, { +48,   +6}, { +41,   +6}, { +10,  +12}, { +41,   -3},
+		 { +49,  -11}, { +47,   -6}, { +49,   -1}, { +52,   -2}, { +37,   +3}, { +51,   -4}, { +23,   +0}, { +58,  -13}, ],
 		// queen
-		[{ -19,  -37}, { -11,  -58}, { -20,  -57}, {  -4,  -72}, {  -5,  -84}, { -13, -112}, { -16,  -92}, {  -6,  -66},
-		 { -16,  -46}, { -14,  -40}, {  -1,  -52}, {  -4,  -43}, {  -2,  -55}, {  +4,  -70}, {  -6,  -87}, { +18,  -76},
-		 { -26,  -23}, { -13,  -23}, { -12,   -9}, { -19,  -14}, { -16,   -6}, {  -2,  -15}, {  +1,  -17}, {  -5,  -19},
-		 { -19,  -25}, { -37,  +31}, { -14,  +15}, { -13,  +34}, { -11,  +25}, { -11,  +29}, {  +3,  +10}, { -12,  +24},
-		 { -31,  +17}, { -41,  +41}, { -16,  +44}, { -21,  +58}, {  +3,  +54}, { +12,  +36}, {  +8,  +41}, {  -3,  +31},
-		 { -39,  +20}, { -31,  +45}, { -26,  +58}, { +13,  +38}, { +41,  +31}, { +60,  +35}, { +58,   +4}, { +25,  +26},
-		 { -55,  +44}, { -52,  +65}, { -14,  +52}, { -11,  +54}, {  -9,  +63}, { +19,  +39}, {  -2,  +46}, { +29,  +14},
-		 {  -5,   +6}, { +21,  +14}, { +27,  +22}, { +50,  +13}, { +42,  +16}, { +47,  +14}, {+104,  -21}, { +88,  -18}, ],
+		[{  -9,  -21}, { -14,  -38}, { -15,  -41}, {  +2,  -47}, {  -1,  -64}, { -19,  -72}, { -10,  -69}, { -15,  -42},
+		 {  -8,  -38}, { -12,  -21}, {  +0,  -38}, {  -3,  -37}, {  +1,  -40}, {  +1,  -57}, {  -1,  -71}, {  -1,  -56},
+		 { -19,  -15}, { -10,  -12}, {  -6,   -5}, { -11,   -5}, { -13,   -7}, {  -1,  -14}, {  +0,  -22}, {  -3,  -23},
+		 { -12,   -8}, { -18,  +15}, {  -3,   +9}, {  -7,  +26}, {  -4,  +18}, {  -6,  +13}, {  +3,   +9}, {  -6,   +6},
+		 {  -8,   +4}, { -15,  +24}, {  -8,  +27}, { -13,  +47}, {  +4,  +36}, {  +7,  +32}, {  +1,  +35}, {  +2,  +18},
+		 { -15,  +14}, {  -5,  +21}, { -12,  +36}, { +10,  +35}, { +27,  +32}, { +43,  +28}, { +30,  +15}, { +19,  +23},
+		 { -42,  +32}, { -47,  +47}, {  -9,  +35}, {  -4,  +47}, {  -6,  +55}, { +12,  +38}, { -21,  +45}, { +11,  +15},
+		 {  +1,   +3}, { +26,  -11}, { +33,   +4}, { +33,   +8}, { +38,   +8}, { +46,   +4}, { +39,   +0}, { +20,   +3}, ],
 		// king
-		[{ -11,  -30}, {  +1,  -29}, { -11,  -21}, { -89,   -1}, { -14,  -45}, { -75,  -20}, { +24,  -39}, { +13,  -64},
-		 { +23,  -43}, { -19,  -11}, { -32,   -6}, { -58,   +7}, { -59,   +6}, { -50,   +2}, {  +2,  -12}, {  +2,  -27},
-		 {  +5,  -37}, { -18,   -4}, { -36,   +6}, { -42,  +19}, { -42,  +15}, { -45,  +10}, { -34,   +0}, { -53,   -6},
-		 { -20,   +2}, { -32,  +11}, {  +1,  +10}, { +17,   +8}, { +14,  +10}, { -20,  +16}, { -29,  +14}, { -35,   +8},
-		 { -23,   +3}, { -43,  +28}, { +38,   -6}, { +45,   +6}, { +65,   +0}, { +59,   +1}, {  +9,  +24}, { -27,  +21},
-		 { -59,  +24}, { -28,  -25}, { -30,  +19}, { +70,   +4}, { +72,   -1}, {+104,  +14}, { +30,  +34}, { +23,  +16},
-		 { -11,  -11}, { -53,  +18}, { -35,  +13}, { +40,  +26}, { +25,  +31}, { +34,  +21}, { -17,  +56}, { -73,   -8},
-		 { +91,  -96}, { +20,   +5}, { -31,  +24}, { +32,  +19}, {+127,  -12}, { +43,  +42}, { -39,  +25}, {+238, -103}, ],
+		[{ +19,   +9}, { +39,  -29}, {  +8,  -23}, { -53,   -8}, { -17,  -31}, { -55,  -13}, { +21,  -32}, {  +0,  -39},
+		 { +49,  -31}, { +19,  -13}, {  -6,   +0}, { -40,   +9}, { -42,   +6}, { -38,   +2}, {  +0,  -17}, { +11,  -32},
+		 { +32,  -20}, { +20,   -6}, { -11,  +12}, { -42,  +22}, { -53,  +24}, { -54,  +15}, { -40,   +1}, { -29,  -21},
+		 { +60,  -19}, { +22,   +8}, {  +5,  +21}, { -16,  +29}, { -26,  +28}, { -32,  +22}, { -46,  +14}, { -52,   -8},
+		 { +48,   -1}, { +33,  +12}, { +17,  +29}, { +23,  +28}, {  -1,  +31}, {  +9,  +18}, {  +5,   +2}, { -17,  -16},
+		 { +79,   -9}, { +11,   +4}, { +50,  +17}, { +52,  +18}, { +53,  +14}, { +46,   +0}, { +43,  -18}, { +44,  -25},
+		 { +35,   +9}, { -22,  +32}, { -25,  +41}, { -29,  +18}, { +52,  -12}, { +33,   -7}, { -11,  -35}, { +59,  -33},
+		 {-176,  +89}, { -71,  +67}, {  +3,   -2}, { -32,   +2}, { -61,   -2}, { +30,  -65}, { +24,  -22}, { +60,  -55}, ],
 	];
-	static immutable Value tempo = {  +4,   +2};
-	Stack [Limits.ply.max + 1] stack;
-	int ply;
+	static immutable Value tempo = {  +3,   -1}; /// Tempo table: a constant offset for the side to move
+	Stack [Limits.Ply.max + 1] stack; /// Stack: evaluation for each ply of the game
+	int ply; /// Current ply to index the stack
 
-	/* Change the evaluation when a piece is removed from the board (after a capture or a promotion */
-	void remove(const Piece p, const Color c, const Square x) {
-		stack[ply].value[c] -= material[p] + positional[p][forward(x, c)];
-		stack[ply].stage -= stageValue[p];
+	/**
+	 * Change the evaluation when a piece is removed from the board after a capture or a promotion.
+	 *
+	 * params: piece = the piece to remove.
+	 * params: color = the color of the piece to remove.
+	 * params: x = the square's coordinate where the piece was.
+	 */
+	void remove(const Piece piece, const Color color, const Square x) pure nothrow {
+		stack[ply].value[color] -= material[piece] + positional[piece][forward(x, color)];
+		stack[ply].stage -= stageValue[piece];
 	}
 
-	/* Change the evaluation when a piece is put on the board */
-	void set(const Piece p, const Color c, const Square x) {
-		stack[ply].value[c] += material[p] + positional[p][forward(x, c)];
-		stack[ply].stage += stageValue[p];
+	/**
+	 * Change the evaluation when a piece is put on the board.
+	 *
+	 * params: piece = the piece to put.
+	 * params: color = the color of the piece to put.
+	 * params: x = the square where the piece will be.
+	 */
+	void set(const Piece piece, const Color color, const Square x) pure nothrow {
+		stack[ply].value[color] += material[piece] + positional[piece][forward(x, color)];
+		stack[ply].stage += stageValue[piece];
 	}
 
-	/* Change the evaluation when a piece move on the board */
-	void deplace(const Piece p, const Color c, const Square from, const Square to) {
-		stack[ply].value[c] += positional[p][forward(to, c)] - positional[p][forward(from, c)];
+	/**
+	 * Change the evaluation when a piece moves on the board.
+	 *
+	 * params: piece = the piece to move.
+	 *         color = the color of the piece to move.
+	 *         from = the origin square where the piece was.
+	 *         to = the destination square.
+	 */
+	void relocate(const Piece piece, const Color color, const Square from, const Square to) pure nothrow {
+		stack[ply].value[color] += positional[piece][forward(to, color)] - positional[piece][forward(from, color)];
 	}
 
-	/* Set the evaluation state from a new position */
-	void set(const Board b) {
+	/**
+	 * Set the evaluation state from a new position.
+	 *
+	 * params: board = The position to evaluate.
+	 */
+	void set(const Board board) pure nothrow {
 		Stack *s = &stack[0];
 
 		ply = 0;
 		*s = Stack.init;
 
-		foreach (x; Square.a1 .. Square.size) if (toColor(b[x]) != Color.none) set(toPiece(b[x]), toColor(b[x]), x);
+		foreach (x; Square.a1 .. Square.size) if (toColor(board[x]) != Color.none) set(toPiece(board[x]), toColor(board[x]), x);
 	}
 
-	/* Update the evaluation state when a move is done */
-	void update(const Board b, const Move m) {
-		const Color player = b.player;
+	/**
+	 * Update the evaluation state when a move is done.
+	 *
+	 * params: board = the chess position.
+	 * params: move = the move to be made.
+	 */
+	void update(const Board board, const Move move) pure nothrow {
+		const Color player = board.player;
 		const Color enemy = opponent(player);
-		const Piece p = toPiece(b[m.from]);
-		const Piece v = toPiece(b[m.to]);
+		const Piece piece = toPiece(board[move.from]);
+		const Piece victim = toPiece(board[move.to]);
 
 		stack[ply + 1] = stack[ply];
 		++ply;
 
-		if (b.isCastling(m)) {
-			deplace(Piece.king, player, m.from, b.kingCastleTo[m.side][player]);
-			deplace(Piece.rook, player, m.to, b.rookCastleTo[m.side][player]);
+		if (board.isCastling(move)) {
+			relocate(Piece.king, player, move.from, board.kingCastleTo[move.side][player]);
+			relocate(Piece.rook, player, move.to, board.rookCastleTo[move.side][player]);
 		} else {
-			deplace(p, player, m.from, m.to);
-			if (v) remove(v, enemy, m.to);
-			if (p == Piece.pawn) {
-				if (m.promotion) {
-					remove(p, player, m.to);
-					set(m.promotion, player, m.to);
-				} else if (b.stack[b.ply].enpassant == m.to) {
-					remove(Piece.pawn, enemy, m.to.enpassant);
+			relocate(piece, player, move.from, move.to);
+			if (victim) remove(victim, enemy, move.to);
+			if (piece == Piece.pawn) {
+				if (move.promotion) {
+					remove(Piece.pawn, player, move.to);
+					set(move.promotion, player, move.to);
+				} else if (board.stack[board.ply].enpassant == move.to) {
+					remove(Piece.pawn, enemy, move.to.enpassant);
 				}
 			}
 		}
 	}
 
-	/* Restore the evaluation when a ove is undone */
-	void restore() { --ply;	}
+	/**
+	 * Restore the evaluation when a move is undone.
+	 */
+	void restore() pure nothrow { --ply; }
 
-	/* Functor: return the evaluation function */
-	int opCall(const Board b) const {
+	/**
+	 * Convert a value to an int based on the stage (opening to endgame) of the game.
+	 *
+	 * params: value = a Value to convert.
+	 *         stage = the stage of the game.
+	 * returns: an integer evaluating a chessboard position or part of it.
+	 */
+	static int toInt(const Value value, const int stage) pure nothrow {
+		return (value.opening * stage + value.endgame * (64 - stage)) / 64;
+	}
+
+	/**
+	 *  Functor: return the evaluation of the position.
+	 *
+	 * params: board = the board position.
+	 * returns: a static evaluation of the position.
+	 */
+	int opCall(const Board board) pure nothrow const {
 		const Stack *s = &stack[ply];
-		const Value value = s.value[b.player] - s.value[opponent(b.player)] + tempo;
+		const Value value = s.value[board.player] - s.value[opponent(board.player)] + tempo;
 
-		return (value.opening * s.stage + value.endgame * (64 - s.stage)) / 64;
+		return (toInt(value, s.stage) / 2) * 2; // rounded value to the nearest even number.
+	}
+
+	/**
+	 * toString: return a string representation of the evaluation details.
+	 *
+	 * params: b = the board position
+	 * returns: a table evaluating each square of the board as a string.
+	 */
+	string toString(const Board board) pure const {
+		Square x;
+		int file, rank;
+		Value value;
+		Piece piece;
+		Color color;
+		const int stage = stack[ply].stage;
+		Value [Color.size][Piece.size] mat, pst;
+		Value [Color.size] cmat, cpst;
+		string text;
+
+		text = "    a    b    c    d    e    f    g    h\n";
+		for (rank = 7; rank >= 0; --rank)
+		for (file = 0; file <= 7; ++file) {
+			x = toSquare(file, rank);
+			piece = toPiece(board[x]);
+			color = toColor(board[x]);
+			if (file == 0) text ~= format("%1d ", rank + 1);
+			if (color != Color.none) {
+				value = material[piece] + positional[piece][forward(x, color)];
+				mat[piece][color] += material[piece];
+				pst[piece][color] += positional[piece][forward(x, color)];
+				cmat[color] += material[piece];
+				cpst[color] += positional[piece][forward(x, color)];
+				text ~= format("%+4d ",  toInt(value, stage) * (color == Color.white ? 1 : -1));
+			} else text ~= format("  .  ");
+			if (file == 7) text ~= format("%1d\n", rank + 1);
+		}
+		text ~= "    a    b    c    d    e    file    g    h\n\n";
+		text ~= "                 White                      Black             \n";
+		text ~= "   Piece  Material  Positional       Material  Positional\n";
+		for (piece = Piece.pawn; piece < Piece.size; ++piece) 
+			text ~= format("%8s  %+8d    %+8d       %+8d    %+8d\n", piece, toInt(mat[piece][Color.white], stage), toInt(pst[piece][Color.white], stage), toInt(mat[piece][Color.black], stage), toInt(pst[piece][Color.black],  stage));
+		text ~= format("   total: %+8d    %+8d       %+8d    %+8d\n", toInt(cmat[Color.white], stage), toInt(cpst[Color.white], stage), toInt(cmat[Color.black], stage), toInt(cpst[Color.black], stage));
+		text ~= format("   tempo: %8d\n\n", toInt(tempo, stage));
+
+		return text;
 	}
 }
-
