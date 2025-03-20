@@ -92,7 +92,7 @@ final class Uci {
 	 * the size of the transposition table.
 	 */
 	void uci() {
-		event.send("id name Dumb 2.2");
+		event.send("id name Dumb 2.3");
 		event.send("id author Richard Delorme");
 		event.send("option name Ponder type check default false");
 		event.send("option name Hash type spin default 64 min 1 max 65536");
