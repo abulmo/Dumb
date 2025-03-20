@@ -539,11 +539,10 @@ final class Search {
 	 *
 	 */
 	void iterativeDeepening() {
-		int λ, υ, δ = 5;
 		int score = 0;
 
 		for (int depth = 1; persist(depth, score); ++depth) {
-			int d = depth;
+			int λ, υ, δ = 5,  d = depth;
 			previousPV = pv[0];
 			if (depth <= 4) {
 				score = pvs(-Score.mate, Score.mate, depth);
