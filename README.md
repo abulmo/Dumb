@@ -17,6 +17,10 @@ Dumb is based on the following algorithms:
 
 Strength:
 
+version 2.3
+ - CCRL rating Blitz 2+1: 2825
+ - CCRL rating Rapid 40/15: 2859
+
 version  2.1
  - CCRL rating Blitz 2+1: 2829
  - CEGT rating 40/4: 2677
